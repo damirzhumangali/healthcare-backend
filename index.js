@@ -17,10 +17,20 @@ dotenv.config();
 const app = express();
 app.use(express.json());
 const PORT = Number(process.env.PORT) || 4000;
+const CORS_ORIGINS = String(
+  process.env.CORS_ORIGINS || process.env.FRONTEND_URL || "http://localhost:5173"
+)
+  .split(",")
+  .map((v) => v.trim())
+  .filter(Boolean);
 
 app.use(
   cors({
-    origin: process.env.FRONTEND_URL,
+    origin(origin, callback) {
+      if (!origin) return callback(null, true);
+      if (CORS_ORIGINS.includes(origin)) return callback(null, true);
+      return callback(new Error("cors_not_allowed"), false);
+    },
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
@@ -443,3 +453,5 @@ app.use((err, req, res, next) => {
 app.listen(PORT, () => {
   console.log(`Auth server running: http://localhost:${PORT}`);
 });
+
+module.exports = app;

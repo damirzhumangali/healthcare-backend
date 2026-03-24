@@ -2,7 +2,8 @@ const fs = require("fs");
 const path = require("path");
 const Database = require("better-sqlite3");
 
-const dataDir = path.join(__dirname, "..", "data");
+const isVercel = process.env.VERCEL || process.env.NOW_REGION;
+const dataDir = isVercel ? "/tmp" : path.join(__dirname, "..", "data");
 const migrationsDir = path.join(__dirname, "migrations");
 const dbPath = path.join(dataDir, "healthassist.sqlite");
 
@@ -18,13 +19,10 @@ function runMigrations() {
     .readdirSync(migrationsDir)
     .filter((name) => name.endsWith(".sql"))
     .sort();
-
   for (const name of files) {
     const sql = fs.readFileSync(path.join(migrationsDir, name), "utf8");
     db.exec(sql);
   }
 }
-
 runMigrations();
-
 module.exports = { db };

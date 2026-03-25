@@ -10,7 +10,8 @@ const jwt = require("jsonwebtoken");
 const { OAuth2Client } = require("google-auth-library");
 const Anthropic = require("@anthropic-ai/sdk");
 const { requireJwt } = require("./middleware/auth");
-const ticketsRoutes = require("./routes/tickets");
+let ticketsRoutes = null;
+try { ticketsRoutes = require("./routes/tickets"); } catch(e) { console.error("tickets_load_error:", e.message); }
 
 dotenv.config();
 
@@ -136,7 +137,7 @@ app.post("/api/measurements", requireJwt, (req, res) => {
   res.json({ item: m });
 });
 
-app.use("/api/tickets", ticketsRoutes);
+if (ticketsRoutes) app.use("/api/tickets", ticketsRoutes);
 
 const BODY_PART_LABELS = {
   head: "Head",

@@ -9,7 +9,7 @@ const dotenv = require("dotenv");
 const jwt = require("jsonwebtoken");
 const { OAuth2Client } = require("google-auth-library");
 const Anthropic = require("@anthropic-ai/sdk");
-const { requireJwt } = require("./middleware/auth");
+const { requireJwt } = require("../middleware/auth");
 const ticketsRoutes = require("./routes/tickets");
 
 dotenv.config();

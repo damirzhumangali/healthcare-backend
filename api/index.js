@@ -10,8 +10,15 @@ const jwt = require("jsonwebtoken");
 const { OAuth2Client } = require("google-auth-library");
 const Anthropic = require("@anthropic-ai/sdk");
 const { requireJwt } = require("./middleware/auth");
+const userService = require("./services/userService");
 let ticketsRoutes = null;
+let appointmentsRoutes = null;
+let doctorsRoutes = null;
+let adminRoutes = null;
 try { ticketsRoutes = require("./routes/tickets"); } catch(e) { console.error("tickets_load_error:", e.message); }
+try { appointmentsRoutes = require("./routes/appointments"); } catch(e) { console.error("appointments_load_error:", e.message); }
+try { doctorsRoutes = require("./routes/doctors"); } catch(e) { console.error("doctors_load_error:", e.message); }
+try { adminRoutes = require("./routes/admin"); } catch(e) { console.error("admin_load_error:", e.message); }
 
 dotenv.config();
 
@@ -91,19 +98,25 @@ app.post("/auth/google/exchange", async (req, res) => {
 
     const payload = ticket.getPayload();
 
-    const user = {
+    const oauthUser = {
       id: payload.sub,
       email: payload.email,
       name: payload.name,
       picture: payload.picture,
     };
 
+    const user = userService.upsertOAuthUser(oauthUser);
     const myToken = jwt.sign(user, process.env.JWT_SECRET, { expiresIn: "7d" });
 
     res.json({ token: myToken, user });
   } catch (e) {
     res.status(500).json({ error: "Auth failed" });
   }
+});
+
+app.get("/api/me", requireJwt, (req, res) => {
+  const user = userService.getUserById(req.user.id) || req.user;
+  res.json({ user });
 });
 
 // ===== Measurements (demo device -> server) =====
@@ -138,6 +151,9 @@ app.post("/api/measurements", requireJwt, (req, res) => {
 });
 
 if (ticketsRoutes) app.use("/api/tickets", ticketsRoutes);
+if (appointmentsRoutes) app.use("/api/appointments", appointmentsRoutes);
+if (doctorsRoutes) app.use("/api/doctors", doctorsRoutes);
+if (adminRoutes) app.use("/api/admin", adminRoutes);
 
 const BODY_PART_LABELS = {
   head: "Head",

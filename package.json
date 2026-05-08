@@ -1,9 +1,10 @@
 {
   "name": "healthassist-server",
   "version": "1.0.0",
-  "description": "",
   "main": "index.js",
   "scripts": {
+    "start": "node api/index.js",
+    "bot": "node bot.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -14,10 +15,12 @@
     "@anthropic-ai/sdk": "^0.80.0",
     "better-sqlite3": "^12.8.0",
     "cors": "^2.8.6",
-    "dotenv": "^17.2.4",
+    "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "google-auth-library": "^10.5.0",
     "jsonwebtoken": "^9.0.3",
-    "lucide-react": "^0.575.0"
-  }
+    "lucide-react": "^0.575.0",
+    "node-telegram-bot-api": "^0.67.0"
+  },
+  "description": ""
 }

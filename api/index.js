@@ -15,10 +15,12 @@ let ticketsRoutes = null;
 let appointmentsRoutes = null;
 let doctorsRoutes = null;
 let adminRoutes = null;
+let telegramRoutes = null;
 try { ticketsRoutes = require("./routes/tickets"); } catch(e) { console.error("tickets_load_error:", e.message); }
 try { appointmentsRoutes = require("./routes/appointments"); } catch(e) { console.error("appointments_load_error:", e.message); }
 try { doctorsRoutes = require("./routes/doctors"); } catch(e) { console.error("doctors_load_error:", e.message); }
 try { adminRoutes = require("./routes/admin"); } catch(e) { console.error("admin_load_error:", e.message); }
+try { telegramRoutes = require("./routes/telegram"); } catch(e) { console.error("telegram_load_error:", e.message); }
 
 dotenv.config();
 
@@ -154,6 +156,7 @@ if (ticketsRoutes) app.use("/api/tickets", ticketsRoutes);
 if (appointmentsRoutes) app.use("/api/appointments", appointmentsRoutes);
 if (doctorsRoutes) app.use("/api/doctors", doctorsRoutes);
 if (adminRoutes) app.use("/api/admin", adminRoutes);
+if (telegramRoutes) app.use("/api/telegram", telegramRoutes);
 
 const BODY_PART_LABELS = {
   head: "Head",

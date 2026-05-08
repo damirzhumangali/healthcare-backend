@@ -4,3 +4,4 @@ data/
 *.log
 .vercel
 .env*.local
+.env.temp

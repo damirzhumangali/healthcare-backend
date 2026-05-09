@@ -1,13 +1,57 @@
 const express = require("express");
-const { requireJwt } = require("../middleware/auth");
-const { requireAdmin } = require("../middleware/roles");
+const { requireJwt, requireJwtFromQuery } = require("../middleware/auth");
+const { requireAdmin, isAdminUser } = require("../middleware/roles");
 const { db } = require("../db/sqlite");
 const doctorService = require("../services/doctorService");
 const telegramConsultationService = require("../services/telegramConsultationService");
 const telegramNotifyService = require("../services/telegramNotifyService");
 const userService = require("../services/userService");
+const bus = require("../services/eventBus");
 
 const router = express.Router();
+
+// SSE endpoint must be registered BEFORE the requireJwt middleware that
+// expects Authorization headers, because EventSource cannot send headers —
+// it uses ?token= query param instead.
+router.get(
+  "/telegram-consultations/stream",
+  requireJwtFromQuery,
+  (req, res) => {
+    if (!isAdminUser(req.user)) {
+      return res.status(403).json({ error: "forbidden" });
+    }
+
+    res.set({
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+      "X-Accel-Buffering": "no",
+    });
+    if (typeof res.flushHeaders === "function") res.flushHeaders();
+
+    const send = (event) => {
+      res.write(`data: ${JSON.stringify(event)}\n\n`);
+    };
+
+    send({ type: "connected", at: new Date().toISOString() });
+
+    const onChange = (event) => send(event);
+    bus.on("telegram_consultation:changed", onChange);
+
+    const heartbeat = setInterval(() => {
+      res.write(`: heartbeat ${Date.now()}\n\n`);
+    }, 25000);
+
+    const cleanup = () => {
+      clearInterval(heartbeat);
+      bus.off("telegram_consultation:changed", onChange);
+    };
+
+    req.on("close", cleanup);
+    req.on("aborted", cleanup);
+    res.on("close", cleanup);
+  }
+);
 
 router.use(requireJwt, requireAdmin);
 

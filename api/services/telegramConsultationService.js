@@ -1,7 +1,9 @@
 const { randomUUID } = require("crypto");
 const { db } = require("../db/sqlite");
+const bus = require("./eventBus");
 
 const STATUSES = new Set(["new", "reviewed"]);
+const CHANGE_EVENT = "telegram_consultation:changed";
 
 function nowIso() {
   return new Date().toISOString();
@@ -81,6 +83,8 @@ function createConsultation(input) {
     )`
   ).run(item);
 
+  bus.emit(CHANGE_EVENT, { type: "created", item });
+
   return item;
 }
 
@@ -122,7 +126,9 @@ function acceptConsultation(id, meetingAt) {
      WHERE id = ?`
   ).run(meetingUrl, meetingAtIso, updatedAt, consultationId);
 
-  return db.prepare("SELECT * FROM telegram_consultations WHERE id = ?").get(consultationId);
+  const updated = db.prepare("SELECT * FROM telegram_consultations WHERE id = ?").get(consultationId);
+  bus.emit(CHANGE_EVENT, { type: "accepted", item: updated });
+  return updated;
 }
 
 function listConsultations() {
@@ -157,7 +163,9 @@ function updateConsultationStatus(id, status) {
 
   if (result.changes === 0) return null;
 
-  return db.prepare("SELECT * FROM telegram_consultations WHERE id = ?").get(consultationId);
+  const updated = db.prepare("SELECT * FROM telegram_consultations WHERE id = ?").get(consultationId);
+  bus.emit(CHANGE_EVENT, { type: "status_changed", item: updated });
+  return updated;
 }
 
 module.exports = {

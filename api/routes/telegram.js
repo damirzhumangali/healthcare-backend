@@ -31,6 +31,7 @@ router.post("/consultations", requireTelegramSecret, (req, res, next) => {
     const item = telegramConsultationService.createConsultation({
       ...body,
       wants_consultation: wantsConsultation,
+      requested_at: body.requested_at,
     });
     return res.status(201).json({ item, consultation: item });
   } catch (error) {

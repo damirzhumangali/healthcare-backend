@@ -347,6 +347,11 @@ bot.on("message", async (msg) => {
     return;
   }
 
+  if (session.step === "pick_date" || session.step === "pick_time") {
+    bot.sendMessage(chatId, "Пожалуйста, выберите дату и время кнопками выше.");
+    return;
+  }
+
   if (session.step === "moderating") {
     bot.sendMessage(chatId, "Проверяю заявку, подождите...");
     return;
@@ -360,7 +365,69 @@ bot.on("message", async (msg) => {
   }
 });
 
-async function finalizeSubmission(chatId, msgFrom, wantsConsultation) {
+const ALMATY_TZ = "Asia/Almaty";
+const ALMATY_OFFSET = "+05:00";
+const TIME_SLOTS = ["09:00", "10:00", "11:00", "12:00", "14:00", "15:00", "16:00", "17:00", "18:00"];
+
+function nowInAlmaty() {
+  const localized = new Date().toLocaleString("en-US", { timeZone: ALMATY_TZ });
+  return new Date(localized);
+}
+
+function formatAlmatyDate(date) {
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function buildDateKeyboard() {
+  const rows = [];
+  const now = nowInAlmaty();
+  for (let i = 0; i < 5; i++) {
+    const d = new Date(now.getTime() + i * 86400000);
+    const isoDate = formatAlmatyDate(d);
+    const dd = String(d.getDate()).padStart(2, "0");
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    let label;
+    if (i === 0) label = `📅 Сегодня (${dd}.${mm})`;
+    else if (i === 1) label = `📅 Завтра (${dd}.${mm})`;
+    else label = `📅 ${dd}.${mm}`;
+    rows.push([{ text: label, callback_data: `date:${isoDate}` }]);
+  }
+  return rows;
+}
+
+function buildTimeKeyboard(date) {
+  const now = nowInAlmaty();
+  const todayIso = formatAlmatyDate(now);
+
+  let slots = TIME_SLOTS;
+  if (date === todayIso) {
+    const minHour = now.getHours() + 1;
+    slots = TIME_SLOTS.filter((time) => Number(time.slice(0, 2)) > minHour);
+  }
+
+  if (slots.length === 0) return null;
+
+  const rows = [];
+  for (let i = 0; i < slots.length; i += 3) {
+    rows.push(
+      slots.slice(i, i + 3).map((time) => ({
+        text: time,
+        callback_data: `time:${date}|${time}`,
+      }))
+    );
+  }
+  rows.push([{ text: "← Выбрать другую дату", callback_data: "time:back" }]);
+  return rows;
+}
+
+function buildAlmatyIso(date, time) {
+  return new Date(`${date}T${time}:00${ALMATY_OFFSET}`).toISOString();
+}
+
+async function finalizeSubmission(chatId, msgFrom, wantsConsultation, requestedAtIso) {
   const session = sessions[chatId];
   if (!session) return;
 
@@ -377,6 +444,7 @@ async function finalizeSubmission(chatId, msgFrom, wantsConsultation) {
       days: session.answers.days,
       temperature: session.answers.temperature,
       wants_consultation: wantsConsultation,
+      requested_at: requestedAtIso || null,
     };
 
     const moderation = await aiModerate(consultationPayload);
@@ -394,15 +462,31 @@ async function finalizeSubmission(chatId, msgFrom, wantsConsultation) {
     lastSubmissionAt.set(String(chatId), Date.now());
     session.step = "done";
 
+    let consultationLine = "Ваша заявка передана доктору в письменном виде.";
+    if (wantsConsultation && requestedAtIso) {
+      const when = new Date(requestedAtIso).toLocaleString("ru-RU", {
+        timeZone: ALMATY_TZ,
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+      consultationLine =
+        `Вы запросили видеоконсультацию на ${when} (Алматы). ` +
+        "Доктор подтвердит время и пришлёт сюда ссылку на встречу.";
+    } else if (wantsConsultation) {
+      consultationLine =
+        "Вы запросили видеоконсультацию. Доктор подтвердит время и пришлёт сюда ссылку на встречу.";
+    }
+
     const summary =
       "Спасибо! Ваша заявка отправлена доктору.\n\n" +
       "Имя: " + session.answers.name + "\n" +
       "Проблема: " + session.answers.problem + "\n" +
       "Дней: " + session.answers.days + "\n" +
       "Температура: " + session.answers.temperature + "\n\n" +
-      (wantsConsultation
-        ? "Вы запросили видеоконсультацию. Доктор подтвердит время и пришлёт сюда ссылку на встречу."
-        : "Ваша заявка передана доктору в письменном виде.");
+      consultationLine;
 
     await bot.sendMessage(chatId, summary);
 
@@ -429,29 +513,96 @@ bot.on("callback_query", async (query) => {
 
   const session = sessions[chatId];
 
-  if (!session || session.step !== "consultation_choice") {
+  if (!session) {
     await bot.answerCallbackQuery(query.id, {
       text: "Кнопка устарела. Напишите /start заново.",
-      show_alert: false,
     }).catch(() => {});
     return;
   }
 
-  if (data !== "consult:yes" && data !== "consult:no") {
+  // Yes/No to consultation
+  if (session.step === "consultation_choice" && (data === "consult:yes" || data === "consult:no")) {
     await bot.answerCallbackQuery(query.id).catch(() => {});
+    await bot.editMessageReplyMarkup(
+      { inline_keyboard: [] },
+      { chat_id: chatId, message_id: query.message.message_id }
+    ).catch(() => {});
+
+    if (data === "consult:no") {
+      await finalizeSubmission(chatId, query.from, false, null);
+      return;
+    }
+
+    session.step = "pick_date";
+    await bot.sendMessage(chatId, "Выберите удобную дату для видеоконсультации:", {
+      reply_markup: { inline_keyboard: buildDateKeyboard() },
+    });
     return;
   }
 
-  const wantsConsultation = data === "consult:yes";
+  // Date picker
+  if (session.step === "pick_date" && data.startsWith("date:")) {
+    const date = data.slice(5);
+    const slots = buildTimeKeyboard(date);
+    await bot.answerCallbackQuery(query.id).catch(() => {});
+    await bot.editMessageReplyMarkup(
+      { inline_keyboard: [] },
+      { chat_id: chatId, message_id: query.message.message_id }
+    ).catch(() => {});
+
+    if (!slots) {
+      await bot.sendMessage(chatId, "На сегодня свободных слотов больше нет. Выберите другую дату:", {
+        reply_markup: { inline_keyboard: buildDateKeyboard() },
+      });
+      return;
+    }
+
+    session.answers.requestedDate = date;
+    session.step = "pick_time";
+    await bot.sendMessage(chatId, `Выберите время на ${date}:`, {
+      reply_markup: { inline_keyboard: slots },
+    });
+    return;
+  }
+
+  // Time picker
+  if (session.step === "pick_time" && data.startsWith("time:")) {
+    const value = data.slice(5);
+
+    if (value === "back") {
+      await bot.answerCallbackQuery(query.id).catch(() => {});
+      await bot.editMessageReplyMarkup(
+        { inline_keyboard: [] },
+        { chat_id: chatId, message_id: query.message.message_id }
+      ).catch(() => {});
+      session.step = "pick_date";
+      await bot.sendMessage(chatId, "Выберите дату:", {
+        reply_markup: { inline_keyboard: buildDateKeyboard() },
+      });
+      return;
+    }
+
+    const [date, time] = value.split("|");
+    if (!date || !time) {
+      await bot.answerCallbackQuery(query.id).catch(() => {});
+      return;
+    }
+
+    const requestedAtIso = buildAlmatyIso(date, time);
+
+    await bot.answerCallbackQuery(query.id, {
+      text: `Время выбрано: ${date} ${time}`,
+    }).catch(() => {});
+    await bot.editMessageReplyMarkup(
+      { inline_keyboard: [] },
+      { chat_id: chatId, message_id: query.message.message_id }
+    ).catch(() => {});
+
+    await finalizeSubmission(chatId, query.from, true, requestedAtIso);
+    return;
+  }
 
   await bot.answerCallbackQuery(query.id, {
-    text: wantsConsultation ? "Запрос на консультацию принят" : "Записано без консультации",
+    text: "Кнопка устарела.",
   }).catch(() => {});
-
-  await bot.editMessageReplyMarkup(
-    { inline_keyboard: [] },
-    { chat_id: chatId, message_id: query.message.message_id }
-  ).catch(() => {});
-
-  await finalizeSubmission(chatId, query.from, wantsConsultation);
 });

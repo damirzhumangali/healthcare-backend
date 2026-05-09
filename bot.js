@@ -11,7 +11,8 @@ const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, {
 console.log("BOT STARTED");
 
 const sessions = {};
-const PORT = Number(process.env.PORT) || 10000;
+const isRender = Boolean(process.env.RENDER);
+const BOT_PORT = Number(process.env.BOT_PORT || (isRender ? process.env.PORT : 4016) || 4016);
 
 function normalizeGatewayUrl(value) {
   return String(value || "").trim().replace(/\/+$/, "");
@@ -34,8 +35,17 @@ const server = http.createServer((req, res) => {
   res.end(JSON.stringify({ error: "not_found" }));
 });
 
-server.listen(PORT, () => {
-  console.log(`BOT WEB SERVICE READY: http://0.0.0.0:${PORT}`);
+server.on("error", (error) => {
+  if (error && (error.code === "EADDRINUSE" || error.code === "EPERM")) {
+    console.warn("BOT WEB SERVICE DISABLED: " + error.code + " on port " + BOT_PORT);
+    return;
+  }
+
+  throw error;
+});
+
+server.listen(BOT_PORT, () => {
+  console.log("BOT WEB SERVICE READY: http://0.0.0.0:" + BOT_PORT);
 });
 
 async function saveConsultation(payload) {

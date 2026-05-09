@@ -11,6 +11,7 @@ const { OAuth2Client } = require("google-auth-library");
 const Anthropic = require("@anthropic-ai/sdk");
 const { requireJwt } = require("./middleware/auth");
 const userService = require("./services/userService");
+const { db } = require("./db/sqlite");
 let ticketsRoutes = null;
 let appointmentsRoutes = null;
 let doctorsRoutes = null;
@@ -34,11 +35,25 @@ const CORS_ORIGINS = String(
   .map((v) => v.trim())
   .filter(Boolean);
 
+function isAllowedCorsOrigin(origin) {
+  if (!origin) return true;
+  if (CORS_ORIGINS.includes(origin)) return true;
+  return (
+    origin === "http://localhost" ||
+    origin === "https://localhost" ||
+    origin === "http://127.0.0.1" ||
+    origin === "https://127.0.0.1" ||
+    origin.startsWith("http://localhost:") ||
+    origin.startsWith("https://localhost:") ||
+    origin.startsWith("http://127.0.0.1:") ||
+    origin.startsWith("https://127.0.0.1:")
+  );
+}
+
 app.use(
   cors({
     origin(origin, callback) {
-      if (!origin) return callback(null, true);
-      if (CORS_ORIGINS.includes(origin)) return callback(null, true);
+      if (isAllowedCorsOrigin(origin)) return callback(null, true);
       return callback(new Error("cors_not_allowed"), false);
     },
     credentials: true,
@@ -72,6 +87,13 @@ const anthropic = new Anthropic({
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-1.5-flash-latest";
 const GROQ_MODEL = process.env.GROQ_MODEL || "llama-3.1-8b-instant";
 const TRIAGE_MAX_TOKENS = Number(process.env.TRIAGE_MAX_TOKENS) || 900;
+
+function isLocalDevRequest(req) {
+  const values = [req.headers.origin, req.headers.referer, req.headers.host]
+    .map((value) => String(value || "").toLowerCase());
+
+  return values.some((value) => value.includes("localhost") || value.includes("127.0.0.1"));
+}
 
 app.get("/auth/google/url", (req, res) => {
   const url = oauthClient.generateAuthUrl({
@@ -114,6 +136,33 @@ app.post("/auth/google/exchange", async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: "Auth failed" });
   }
+});
+
+app.post("/auth/local/dev-token", (req, res) => {
+  if (!isLocalDevRequest(req)) {
+    return res.status(404).json({ error: "not_found" });
+  }
+
+  const email = String(req.body?.email || "").trim().toLowerCase();
+  const name = String(req.body?.name || email.split("@")[0] || "Local User").trim();
+
+  if (!email) {
+    return res.status(400).json({ error: "email_required" });
+  }
+
+  const existingUser = db
+    .prepare("SELECT id, email, name, picture FROM users WHERE lower(email) = ?")
+    .get(email);
+
+  const user = userService.upsertOAuthUser({
+    id: existingUser?.id || `local:${email}`,
+    email,
+    name: existingUser?.name || name,
+    picture: existingUser?.picture || "",
+  });
+
+  const token = jwt.sign(user, process.env.JWT_SECRET, { expiresIn: "7d" });
+  return res.json({ token, user });
 });
 
 app.get("/api/me", requireJwt, (req, res) => {

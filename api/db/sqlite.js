@@ -21,7 +21,18 @@ function runMigrations() {
     .sort();
   for (const name of files) {
     const sql = fs.readFileSync(path.join(migrationsDir, name), "utf8");
-    db.exec(sql);
+    const statements = sql
+      .split(/;\s*(?:\n|$)/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    for (const statement of statements) {
+      try {
+        db.exec(statement);
+      } catch (error) {
+        if (/duplicate column name/i.test(String(error?.message || ""))) continue;
+        throw error;
+      }
+    }
   }
 }
 runMigrations();

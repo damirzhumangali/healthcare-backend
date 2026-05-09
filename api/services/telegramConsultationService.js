@@ -11,6 +11,11 @@ function normalizeText(value) {
   return String(value ?? "").trim();
 }
 
+function buildJitsiUrl() {
+  const slug = randomUUID().replace(/-/g, "").slice(0, 12);
+  return `https://meet.jit.si/healthassist-${slug}`;
+}
+
 function createConsultation(input) {
   const createdAt = nowIso();
   const item = {
@@ -24,6 +29,9 @@ function createConsultation(input) {
     days: normalizeText(input.days),
     temperature: normalizeText(input.temperature),
     status: "new",
+    wants_consultation: input.wants_consultation ? 1 : 0,
+    meeting_url: null,
+    meeting_at: null,
     created_at: createdAt,
     updated_at: createdAt,
   };
@@ -46,6 +54,9 @@ function createConsultation(input) {
       days,
       temperature,
       status,
+      wants_consultation,
+      meeting_url,
+      meeting_at,
       created_at,
       updated_at
     ) VALUES (
@@ -59,12 +70,56 @@ function createConsultation(input) {
       @days,
       @temperature,
       @status,
+      @wants_consultation,
+      @meeting_url,
+      @meeting_at,
       @created_at,
       @updated_at
     )`
   ).run(item);
 
   return item;
+}
+
+function acceptConsultation(id, meetingAt) {
+  const consultationId = normalizeText(id);
+  const at = normalizeText(meetingAt);
+
+  if (!consultationId) {
+    const error = new Error("missing_consultation_id");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  if (!at) {
+    const error = new Error("missing_meeting_at");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const parsed = new Date(at);
+  if (Number.isNaN(parsed.getTime())) {
+    const error = new Error("invalid_meeting_at");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const existing = db
+    .prepare("SELECT * FROM telegram_consultations WHERE id = ?")
+    .get(consultationId);
+  if (!existing) return null;
+
+  const meetingUrl = existing.meeting_url || buildJitsiUrl();
+  const meetingAtIso = parsed.toISOString();
+  const updatedAt = nowIso();
+
+  db.prepare(
+    `UPDATE telegram_consultations
+     SET meeting_url = ?, meeting_at = ?, status = 'reviewed', updated_at = ?
+     WHERE id = ?`
+  ).run(meetingUrl, meetingAtIso, updatedAt, consultationId);
+
+  return db.prepare("SELECT * FROM telegram_consultations WHERE id = ?").get(consultationId);
 }
 
 function listConsultations() {
@@ -106,4 +161,5 @@ module.exports = {
   createConsultation,
   listConsultations,
   updateConsultationStatus,
+  acceptConsultation,
 };

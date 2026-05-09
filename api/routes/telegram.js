@@ -20,7 +20,18 @@ function requireTelegramSecret(req, res, next) {
 
 router.post("/consultations", requireTelegramSecret, (req, res, next) => {
   try {
-    const item = telegramConsultationService.createConsultation(req.body || {});
+    const body = req.body || {};
+    const wantsConsultationRaw = body.wants_consultation;
+    const wantsConsultation =
+      wantsConsultationRaw === true ||
+      wantsConsultationRaw === 1 ||
+      wantsConsultationRaw === "1" ||
+      wantsConsultationRaw === "true";
+
+    const item = telegramConsultationService.createConsultation({
+      ...body,
+      wants_consultation: wantsConsultation,
+    });
     return res.status(201).json({ item, consultation: item });
   } catch (error) {
     if (error?.statusCode) {

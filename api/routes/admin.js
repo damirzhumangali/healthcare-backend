@@ -4,6 +4,7 @@ const { requireAdmin } = require("../middleware/roles");
 const { db } = require("../db/sqlite");
 const doctorService = require("../services/doctorService");
 const telegramConsultationService = require("../services/telegramConsultationService");
+const telegramNotifyService = require("../services/telegramNotifyService");
 const userService = require("../services/userService");
 
 const router = express.Router();
@@ -66,6 +67,43 @@ router.patch("/telegram-consultations/:id/status", (req, res, next) => {
     }
 
     return res.status(200).json({ item, consultation: item });
+  } catch (error) {
+    if (error?.statusCode) {
+      return res.status(error.statusCode).json({ error: error.message });
+    }
+    return next(error);
+  }
+});
+
+router.post("/telegram-consultations/:id/accept", async (req, res, next) => {
+  try {
+    const item = telegramConsultationService.acceptConsultation(
+      req.params.id,
+      req.body?.meeting_at
+    );
+
+    if (!item) {
+      return res.status(404).json({ error: "not_found" });
+    }
+
+    let notified = false;
+    let notifyError = null;
+    try {
+      await telegramNotifyService.sendBotMessage(
+        item.chat_id,
+        telegramNotifyService.formatMeetingMessage({
+          patientName: item.patient_name,
+          meetingUrl: item.meeting_url,
+          meetingAt: item.meeting_at,
+        })
+      );
+      notified = true;
+    } catch (error) {
+      notifyError = error?.message || "telegram_send_failed";
+      console.error("telegram_notify_failed:", notifyError, error?.details || "");
+    }
+
+    return res.status(200).json({ item, consultation: item, notified, notify_error: notifyError });
   } catch (error) {
     if (error?.statusCode) {
       return res.status(error.statusCode).json({ error: error.message });

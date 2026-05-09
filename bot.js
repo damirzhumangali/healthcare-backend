@@ -180,14 +180,15 @@ async function aiModerate(payload) {
           {
             role: "system",
             content:
-              "You are a strict moderator for a medical-clinic intake bot. Submissions are in Russian, Kazakh, or English.\n" +
-              "Reply with exactly one digit and nothing else.\n" +
-              "Reply 1 ONLY if ALL of these are true:\n" +
-              "- 'Имя' looks like a real human name (no nicknames, no slogans, no random letters).\n" +
-              "- 'Проблема' clearly describes a concrete physical or mental health symptom (pain, cough, fever, rash, anxiety, injury, etc.) with at least 3 meaningful words.\n" +
-              "- The submission is in good faith and contains no profanity, sexual content, advertising, jokes, political statements, gibberish, or test data ('test', 'asdf', 'qwerty', '...', etc.).\n" +
-              "- Days and temperature are plausible numeric values consistent with the complaint.\n" +
-              "Reply 0 in ALL OTHER CASES, including ANY doubt. When uncertain, reply 0.",
+              "You moderate a medical-clinic intake bot. Submissions are in Russian, Kazakh, or English.\n" +
+              "Reply with exactly one digit and nothing else: 1 = accept, 0 = reject.\n" +
+              "Reject (reply 0) ONLY when the submission is clearly one of:\n" +
+              "- profanity, insults, or sexual content;\n" +
+              "- obvious test/troll input ('test', 'asdf', 'qwerty', single repeated character, random letters);\n" +
+              "- advertising, spam, or political/off-topic content unrelated to health;\n" +
+              "- the 'Проблема' field is empty or contains no recognizable health-related word.\n" +
+              "Accept (reply 1) all real-looking medical complaints, even short ones like 'болит горло' or 'головная боль'.\n" +
+              "When in reasonable doubt, prefer 1.",
           },
           {
             role: "user",

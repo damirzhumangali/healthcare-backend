@@ -1,4 +1,5 @@
 const appointmentService = require("../services/appointmentService");
+const doctorService = require("../services/doctorService");
 
 function handleServiceError(error, next, res) {
   if (error?.statusCode) {
@@ -31,8 +32,13 @@ function listAppointments(req, res, next) {
         .filter(Boolean)
         .includes(String(req.user?.email || "").toLowerCase());
 
+    const doctor = req.user?.role === "doctor" ? doctorService.getDoctorForUser(req.user) : null;
+    const doctorId = req.query?.doctor_id || req.query?.doctorId || (canSeeAll ? null : doctor?.id || null);
+    const patientId = req.query?.patient_id || req.query?.patientId || (canSeeAll || doctor ? null : req.user.id);
+
     const appointments = appointmentService.listAppointments({
-      doctor_id: req.query?.doctor_id || req.query?.doctorId || (canSeeAll ? null : req.user.id),
+      doctor_id: doctorId,
+      patient_id: patientId,
       date: req.query?.date,
     });
     return res.status(200).json({ appointments, items: appointments });

@@ -41,9 +41,26 @@ function createAppointment(input) {
   return appointment;
 }
 
-function listAppointments({ doctor_id, date } = {}) {
+function listAppointments({ doctor_id, patient_id, date } = {}) {
   const doctorId = String(doctor_id || "").trim();
+  const patientId = String(patient_id || "").trim();
   const appointmentDate = String(date || "").trim();
+
+  if (appointmentDate && doctorId && patientId) {
+    return db
+      .prepare(
+        "SELECT * FROM appointments WHERE doctor_id = ? AND patient_id = ? AND date = ? ORDER BY time ASC, created_at ASC"
+      )
+      .all(doctorId, patientId, appointmentDate);
+  }
+
+  if (appointmentDate && patientId) {
+    return db
+      .prepare(
+        "SELECT * FROM appointments WHERE patient_id = ? AND date = ? ORDER BY time ASC, created_at ASC"
+      )
+      .all(patientId, appointmentDate);
+  }
 
   if (appointmentDate) {
     if (!doctorId) {
@@ -60,6 +77,12 @@ function listAppointments({ doctor_id, date } = {}) {
   }
 
   if (!doctorId) {
+    if (patientId) {
+      return db
+        .prepare("SELECT * FROM appointments WHERE patient_id = ? ORDER BY date ASC, time ASC, created_at ASC")
+        .all(patientId);
+    }
+
     return db
       .prepare("SELECT * FROM appointments ORDER BY date ASC, time ASC, created_at ASC")
       .all();

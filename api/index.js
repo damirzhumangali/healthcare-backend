@@ -26,18 +26,144 @@ try { telegramRoutes = require("./routes/telegram"); } catch(e) { console.error(
 dotenv.config();
 
 const app = express();
-app.use(express.json());
+app.disable("x-powered-by");
+app.use(express.json({ limit: "100kb" }));
 const PORT = Number(process.env.PORT) || 4000;
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
 const CORS_ORIGINS = String(
   process.env.CORS_ORIGINS || process.env.FRONTEND_URL || "http://localhost:5173"
 )
   .split(",")
   .map((v) => v.trim())
   .filter(Boolean);
+const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS) || 60_000;
+const AUTH_COOKIE_NAME = process.env.AUTH_COOKIE_NAME || "healthassist_token";
+const AUTH_COOKIE_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
+const authRateWindow = new Map();
+const triageRateWindow = new Map();
+
+function getClientIp(req) {
+  const forwarded = String(req.headers["x-forwarded-for"] || "")
+    .split(",")[0]
+    .trim();
+  return forwarded || req.ip || req.socket?.remoteAddress || "unknown";
+}
+
+function cleanupRateWindow(store, now, windowMs) {
+  for (const [key, entry] of store.entries()) {
+    if (now - entry.startedAt >= windowMs) store.delete(key);
+  }
+}
+
+function createRateLimiter({
+  store,
+  windowMs = RATE_LIMIT_WINDOW_MS,
+  max,
+  keyPrefix,
+  message = "too_many_requests",
+}) {
+  return (req, res, next) => {
+    const now = Date.now();
+    cleanupRateWindow(store, now, windowMs);
+
+    const key = `${keyPrefix}:${getClientIp(req)}`;
+    const entry = store.get(key);
+    if (!entry || now - entry.startedAt >= windowMs) {
+      store.set(key, { count: 1, startedAt: now });
+      return next();
+    }
+
+    if (entry.count >= max) {
+      const retryAfterSeconds = Math.max(1, Math.ceil((windowMs - (now - entry.startedAt)) / 1000));
+      res.set("Retry-After", String(retryAfterSeconds));
+      return res.status(429).json({ error: message });
+    }
+
+    entry.count += 1;
+    return next();
+  };
+}
+
+function serializeCookie(name, value, options = {}) {
+  const parts = [`${name}=${encodeURIComponent(value)}`];
+
+  if (options.maxAge !== undefined) {
+    parts.push(`Max-Age=${options.maxAge}`);
+  }
+  if (options.path) {
+    parts.push(`Path=${options.path}`);
+  }
+  if (options.httpOnly) {
+    parts.push("HttpOnly");
+  }
+  if (options.sameSite) {
+    parts.push(`SameSite=${options.sameSite}`);
+  }
+  if (options.secure) {
+    parts.push("Secure");
+  }
+
+  return parts.join("; ");
+}
+
+function setAuthCookie(res, token) {
+  res.append(
+    "Set-Cookie",
+    serializeCookie(AUTH_COOKIE_NAME, token, {
+      maxAge: AUTH_COOKIE_MAX_AGE_SECONDS,
+      path: "/",
+      httpOnly: true,
+      sameSite: IS_PRODUCTION ? "None" : "Lax",
+      secure: IS_PRODUCTION,
+    })
+  );
+}
+
+function clearAuthCookie(res) {
+  res.append(
+    "Set-Cookie",
+    serializeCookie(AUTH_COOKIE_NAME, "", {
+      maxAge: 0,
+      path: "/",
+      httpOnly: true,
+      sameSite: IS_PRODUCTION ? "None" : "Lax",
+      secure: IS_PRODUCTION,
+    })
+  );
+}
+
+function applySecurityHeaders(req, res, next) {
+  res.set(
+    "Content-Security-Policy",
+    "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+  );
+  res.set("Permissions-Policy", "camera=(), geolocation=(), microphone=(), payment=(), usb=()");
+  res.set("X-Content-Type-Options", "nosniff");
+  res.set("X-Frame-Options", "DENY");
+  res.set("Referrer-Policy", "strict-origin-when-cross-origin");
+  if (IS_PRODUCTION) {
+    res.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  }
+  next();
+}
+
+const authRateLimit = createRateLimiter({
+  store: authRateWindow,
+  max: 10,
+  keyPrefix: "auth",
+});
+
+const triageRateLimit = createRateLimiter({
+  store: triageRateWindow,
+  windowMs: 5 * 60_000,
+  max: 20,
+  keyPrefix: "triage",
+});
 
 function isAllowedCorsOrigin(origin) {
   if (!origin) return true;
   if (CORS_ORIGINS.includes(origin)) return true;
+  if (IS_PRODUCTION) return false;
   return (
     origin === "http://localhost" ||
     origin === "https://localhost" ||
@@ -50,6 +176,7 @@ function isAllowedCorsOrigin(origin) {
   );
 }
 
+app.use(applySecurityHeaders);
 app.use(
   cors({
     origin(origin, callback) {
@@ -89,6 +216,7 @@ const GROQ_MODEL = process.env.GROQ_MODEL || "llama-3.1-8b-instant";
 const TRIAGE_MAX_TOKENS = Number(process.env.TRIAGE_MAX_TOKENS) || 900;
 
 function isLocalDevRequest(req) {
+  if (IS_PRODUCTION) return false;
   const values = [req.headers.origin, req.headers.referer, req.headers.host]
     .map((value) => String(value || "").toLowerCase());
 
@@ -104,41 +232,47 @@ app.get("/auth/google/url", (req, res) => {
   res.json({ url });
 });
 
-app.post("/auth/google/exchange", async (req, res) => {
-  try {
-    const { code } = req.body;
-    if (!code) return res.status(400).json({ error: "No code" });
+app.post(
+  "/auth/google/exchange",
+  authRateLimit,
+  async (req, res) => {
+    try {
+      const { code } = req.body;
+      if (!code) return res.status(400).json({ error: "No code" });
 
-    const { tokens } = await oauthClient.getToken(code);
+      const { tokens } = await oauthClient.getToken(code);
 
-    if (!tokens.id_token) {
-      return res.status(500).json({ error: "No id_token returned" });
+      if (!tokens.id_token) {
+        return res.status(500).json({ error: "No id_token returned" });
+      }
+
+      const ticket = await oauthClient.verifyIdToken({
+        idToken: tokens.id_token,
+        audience: process.env.GOOGLE_CLIENT_ID,
+      });
+
+      const payload = ticket.getPayload();
+
+      const oauthUser = {
+        id: payload.sub,
+        email: payload.email,
+        name: payload.name,
+        picture: payload.picture,
+      };
+
+      const user = userService.upsertOAuthUser(oauthUser);
+      const myToken = jwt.sign(user, process.env.JWT_SECRET, { expiresIn: "7d" });
+
+      setAuthCookie(res, myToken);
+      res.set("Cache-Control", "no-store");
+      res.json({ token: IS_PRODUCTION ? null : myToken, user });
+    } catch (e) {
+      res.status(500).json({ error: "Auth failed" });
     }
-
-    const ticket = await oauthClient.verifyIdToken({
-      idToken: tokens.id_token,
-      audience: process.env.GOOGLE_CLIENT_ID,
-    });
-
-    const payload = ticket.getPayload();
-
-    const oauthUser = {
-      id: payload.sub,
-      email: payload.email,
-      name: payload.name,
-      picture: payload.picture,
-    };
-
-    const user = userService.upsertOAuthUser(oauthUser);
-    const myToken = jwt.sign(user, process.env.JWT_SECRET, { expiresIn: "7d" });
-
-    res.json({ token: myToken, user });
-  } catch (e) {
-    res.status(500).json({ error: "Auth failed" });
   }
-});
+);
 
-app.post("/auth/local/dev-token", (req, res) => {
+app.post("/auth/local/dev-token", authRateLimit, (req, res) => {
   if (!isLocalDevRequest(req)) {
     return res.status(404).json({ error: "not_found" });
   }
@@ -162,7 +296,15 @@ app.post("/auth/local/dev-token", (req, res) => {
   });
 
   const token = jwt.sign(user, process.env.JWT_SECRET, { expiresIn: "7d" });
+  setAuthCookie(res, token);
+  res.set("Cache-Control", "no-store");
   return res.json({ token, user });
+});
+
+app.post("/auth/logout", (req, res) => {
+  clearAuthCookie(res);
+  res.set("Cache-Control", "no-store");
+  return res.status(204).end();
 });
 
 app.get("/api/me", requireJwt, (req, res) => {
@@ -432,7 +574,7 @@ async function askGroq(prompt, apiKey) {
   return data?.choices?.[0]?.message?.content?.trim() || "";
 }
 
-app.post("/api/triage", async (req, res) => {
+app.post("/api/triage", triageRateLimit, async (req, res) => {
   let bodyPart = "head";
   let locale = "ru";
   try {

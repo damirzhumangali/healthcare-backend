@@ -17,11 +17,17 @@ let appointmentsRoutes = null;
 let doctorsRoutes = null;
 let adminRoutes = null;
 let telegramRoutes = null;
+let measurementsRoutes = null;
+let devicePairingsRoutes = null;
+let deviceRoutes = null;
 try { ticketsRoutes = require("./routes/tickets"); } catch(e) { console.error("tickets_load_error:", e.message); }
 try { appointmentsRoutes = require("./routes/appointments"); } catch(e) { console.error("appointments_load_error:", e.message); }
 try { doctorsRoutes = require("./routes/doctors"); } catch(e) { console.error("doctors_load_error:", e.message); }
 try { adminRoutes = require("./routes/admin"); } catch(e) { console.error("admin_load_error:", e.message); }
 try { telegramRoutes = require("./routes/telegram"); } catch(e) { console.error("telegram_load_error:", e.message); }
+try { measurementsRoutes = require("./routes/measurements"); } catch(e) { console.error("measurements_load_error:", e.message); }
+try { devicePairingsRoutes = require("./routes/devicePairings"); } catch(e) { console.error("device_pairings_load_error:", e.message); }
+try { deviceRoutes = require("./routes/device"); } catch(e) { console.error("device_load_error:", e.message); }
 
 dotenv.config();
 
@@ -272,6 +278,64 @@ app.post(
   }
 );
 
+app.post("/auth/vk/session", authRateLimit, async (req, res) => {
+  try {
+    const accessToken = String(req.body?.access_token || "").trim();
+    const vkAppId = Number(process.env.VK_APP_ID || 0);
+
+    if (!accessToken) {
+      return res.status(400).json({ error: "access_token_required" });
+    }
+    if (!Number.isFinite(vkAppId) || vkAppId <= 0) {
+      return res.status(503).json({ error: "vk_auth_not_configured" });
+    }
+
+    const params = new URLSearchParams({
+      client_id: String(vkAppId),
+    });
+
+    const vkRes = await fetch(`https://id.vk.ru/oauth2/user_info?${params.toString()}`, {
+      method: "POST",
+      body: new URLSearchParams({
+        access_token: accessToken,
+      }),
+    });
+
+    if (!vkRes.ok) {
+      const body = await vkRes.text().catch(() => "");
+      return res.status(502).json({ error: "vk_user_info_failed", details: body });
+    }
+
+    const data = await vkRes.json();
+    const rawUser = data?.user || {};
+    const userId = String(rawUser.user_id || "").trim();
+
+    if (!userId) {
+      return res.status(502).json({ error: "vk_user_id_missing" });
+    }
+
+    const email = String(rawUser.email || "").trim().toLowerCase() || `vkid-${userId}@id.vk.local`;
+    const firstName = String(rawUser.first_name || "").trim();
+    const lastName = String(rawUser.last_name || "").trim();
+    const name = `${firstName} ${lastName}`.trim() || `VK User ${userId}`;
+    const picture = String(rawUser.avatar || "").trim();
+
+    const user = userService.upsertOAuthUser({
+      id: `vk:${userId}`,
+      email,
+      name,
+      picture,
+    });
+
+    const token = jwt.sign(user, process.env.JWT_SECRET, { expiresIn: "7d" });
+    setAuthCookie(res, token);
+    res.set("Cache-Control", "no-store");
+    return res.json({ token: IS_PRODUCTION ? null : token, user });
+  } catch (error) {
+    return res.status(500).json({ error: "vk_auth_failed" });
+  }
+});
+
 app.post("/auth/local/dev-token", authRateLimit, (req, res) => {
   if (!isLocalDevRequest(req)) {
     return res.status(404).json({ error: "not_found" });
@@ -312,42 +376,14 @@ app.get("/api/me", requireJwt, (req, res) => {
   res.json({ user });
 });
 
-// ===== Measurements (demo device -> server) =====
-const measurements = [];
-
-app.get("/api/measurements/my", requireJwt, (req, res) => {
-  const my = measurements
-    .filter((m) => m.userId === req.user.id)
-    .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
-  res.json({ items: my });
-});
-
-app.post("/api/measurements", requireJwt, (req, res) => {
-  const { deviceId = "device-001" } = req.body || {};
-  const now = new Date().toISOString();
-
-  const m = {
-    id: globalThis.crypto.randomUUID(),
-    userId: req.user.id,
-    deviceId,
-    createdAt: now,
-    systolic: 110 + Math.floor(Math.random() * 25),
-    diastolic: 70 + Math.floor(Math.random() * 15),
-    tempC: Math.round((36.2 + Math.random() * 1.6) * 10) / 10,
-    hr: 60 + Math.floor(Math.random() * 35),
-    spo2: 95 + Math.floor(Math.random() * 5),
-    note: "Симуляция измерения от устройства",
-  };
-
-  measurements.push(m);
-  res.json({ item: m });
-});
-
 if (ticketsRoutes) app.use("/api/tickets", ticketsRoutes);
 if (appointmentsRoutes) app.use("/api/appointments", appointmentsRoutes);
 if (doctorsRoutes) app.use("/api/doctors", doctorsRoutes);
 if (adminRoutes) app.use("/api/admin", adminRoutes);
 if (telegramRoutes) app.use("/api/telegram", telegramRoutes);
+if (measurementsRoutes) app.use("/api/measurements", measurementsRoutes);
+if (devicePairingsRoutes) app.use("/api/device-pairings", devicePairingsRoutes);
+if (deviceRoutes) app.use("/api/device", deviceRoutes);
 
 const BODY_PART_LABELS = {
   head: "Head",

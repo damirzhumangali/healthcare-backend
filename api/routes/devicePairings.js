@@ -86,7 +86,7 @@ router.get("/:token", (req, res, next) => {
     const patient = pairing.patientId ? toPatientSummary(userService.getUserById(pairing.patientId)) : null;
 
     return res.json({
-      pairing,
+      pairing: { ...pairing, pollSecret },
       patient,
     });
   } catch (error) {

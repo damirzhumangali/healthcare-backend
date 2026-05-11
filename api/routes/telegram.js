@@ -1,7 +1,15 @@
 const express = require("express");
+const { timingSafeEqual } = require("crypto");
 const telegramConsultationService = require("../services/telegramConsultationService");
 
 const router = express.Router();
+
+function safeSecretsEqual(left, right) {
+  const a = Buffer.from(String(left || ""), "utf8");
+  const b = Buffer.from(String(right || ""), "utf8");
+  if (a.length === 0 || a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
 
 function requireTelegramSecret(req, res, next) {
   const configuredSecret = String(process.env.TELEGRAM_INGEST_SECRET || "").trim();
@@ -11,7 +19,7 @@ function requireTelegramSecret(req, res, next) {
     return res.status(503).json({ error: "bot_ingest_not_configured" });
   }
 
-  if (!incomingSecret || incomingSecret !== configuredSecret) {
+  if (!safeSecretsEqual(incomingSecret, configuredSecret)) {
     return res.status(401).json({ error: "unauthorized" });
   }
 

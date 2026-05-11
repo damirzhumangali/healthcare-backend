@@ -271,7 +271,7 @@ app.post(
 
       setAuthCookie(res, myToken);
       res.set("Cache-Control", "no-store");
-      res.json({ token: IS_PRODUCTION ? null : myToken, user });
+      res.json({ token: myToken, user });
     } catch (e) {
       res.status(500).json({ error: "Auth failed" });
     }
@@ -330,7 +330,7 @@ app.post("/auth/vk/session", authRateLimit, async (req, res) => {
     const token = jwt.sign(user, process.env.JWT_SECRET, { expiresIn: "7d" });
     setAuthCookie(res, token);
     res.set("Cache-Control", "no-store");
-    return res.json({ token: IS_PRODUCTION ? null : token, user });
+    return res.json({ token, user });
   } catch (error) {
     return res.status(500).json({ error: "vk_auth_failed" });
   }

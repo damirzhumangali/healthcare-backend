@@ -127,7 +127,7 @@ function createPairing({ deviceId, pairingTtlSeconds, sessionTtlSeconds }) {
     throw createError("device_id_required");
   }
 
-  const normalizedPairingTtl = normalizeTtl(pairingTtlSeconds, 120, 300);
+  const normalizedPairingTtl = normalizeTtl(pairingTtlSeconds, 300, 600);
   const normalizedSessionTtl = normalizeTtl(sessionTtlSeconds, 600, 3600);
   const ts = nowIso();
 

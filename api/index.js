@@ -20,6 +20,7 @@ let telegramRoutes = null;
 let measurementsRoutes = null;
 let devicePairingsRoutes = null;
 let deviceRoutes = null;
+let servoControlRoutes = null;
 try { ticketsRoutes = require("./routes/tickets"); } catch(e) { console.error("tickets_load_error:", e.message); }
 try { appointmentsRoutes = require("./routes/appointments"); } catch(e) { console.error("appointments_load_error:", e.message); }
 try { doctorsRoutes = require("./routes/doctors"); } catch(e) { console.error("doctors_load_error:", e.message); }
@@ -28,6 +29,7 @@ try { telegramRoutes = require("./routes/telegram"); } catch(e) { console.error(
 try { measurementsRoutes = require("./routes/measurements"); } catch(e) { console.error("measurements_load_error:", e.message); }
 try { devicePairingsRoutes = require("./routes/devicePairings"); } catch(e) { console.error("device_pairings_load_error:", e.message); }
 try { deviceRoutes = require("./routes/device"); } catch(e) { console.error("device_load_error:", e.message); }
+try { servoControlRoutes = require("./routes/servoControl"); } catch(e) { console.error("servo_control_load_error:", e.message); }
 
 dotenv.config();
 
@@ -384,6 +386,7 @@ if (telegramRoutes) app.use("/api/telegram", telegramRoutes);
 if (measurementsRoutes) app.use("/api/measurements", measurementsRoutes);
 if (devicePairingsRoutes) app.use("/api/device-pairings", devicePairingsRoutes);
 if (deviceRoutes) app.use("/api/device", deviceRoutes);
+if (servoControlRoutes) app.use("/api/servo-control", servoControlRoutes);
 
 const BODY_PART_LABELS = {
   head: "Head",

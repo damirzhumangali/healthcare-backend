@@ -34,15 +34,19 @@ function toPatientSummary(user) {
 }
 
 function buildSessionPayload(session, limit) {
-  const patient = userService.getUserById(session.patientId);
+  const dbPatient = userService.getUserById(session.patientId);
   const measurements = measurementService.listMeasurementsForUser(session.patientId, {
     deviceId: session.deviceId,
     limit,
   });
 
+  const patient = toPatientSummary(
+    dbPatient || { id: session.patientId, name: session.patientName || "", email: "", picture: "", role: "patient" }
+  );
+
   return {
     session,
-    patient: toPatientSummary(patient),
+    patient,
     measurements,
   };
 }

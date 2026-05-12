@@ -83,7 +83,10 @@ router.get("/:token", (req, res, next) => {
       return res.status(404).json({ error: "not_found" });
     }
 
-    const patient = pairing.patientId ? toPatientSummary(userService.getUserById(pairing.patientId)) : null;
+    const dbUser = pairing.patientId ? userService.getUserById(pairing.patientId) : null;
+    const patient = pairing.patientId
+      ? toPatientSummary(dbUser || { id: pairing.patientId, name: pairing.patientName || "", email: "", picture: "", role: "patient" })
+      : null;
 
     return res.json({
       pairing: { ...pairing, pollSecret },
@@ -99,10 +102,13 @@ router.get("/:token", (req, res, next) => {
 
 router.post("/:token/approve", requireJwt, (req, res, next) => {
   try {
+    const jwtUser = req.user;
+    const patientName = jwtUser.name || jwtUser.email || "";
     const pairing = devicePairingService.approvePairing(
       req.params.token,
-      req.user.id,
-      req.body?.sessionTtlSeconds ?? process.env.DEVICE_SESSION_TTL_SECONDS
+      jwtUser.id,
+      req.body?.sessionTtlSeconds ?? process.env.DEVICE_SESSION_TTL_SECONDS,
+      patientName
     );
 
     if (!pairing) {

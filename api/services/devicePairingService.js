@@ -49,6 +49,10 @@ function publicPairing(row, { includePollSecret = false, includeSession = false 
     updatedAt: row.updated_at,
   };
 
+  if (row.patient_name) {
+    pairing.patientName = row.patient_name;
+  }
+
   if (includePollSecret) {
     pairing.pollSecret = row.poll_secret;
   }
@@ -68,6 +72,7 @@ function publicSession(row) {
     sessionToken: row.session_token,
     deviceId: row.device_id,
     patientId: row.patient_id,
+    patientName: row.patient_name || null,
     status: row.status,
     createdAt: row.created_at,
     claimedAt: row.claimed_at,
@@ -199,9 +204,10 @@ function getPairingForTablet(token, pollSecret) {
   return publicPairing(row, { includeSession: true });
 }
 
-function approvePairing(token, patientId, sessionTtlSeconds) {
+function approvePairing(token, patientId, sessionTtlSeconds, patientName) {
   const normalizedToken = String(token || "").trim();
   const normalizedPatientId = String(patientId || "").trim();
+  const normalizedPatientName = String(patientName || "").trim();
 
   if (!normalizedPatientId) {
     throw createError("patient_id_required");
@@ -234,6 +240,7 @@ function approvePairing(token, patientId, sessionTtlSeconds) {
   const result = db.prepare(
     `UPDATE device_pairings
      SET patient_id = ?,
+         patient_name = ?,
          status = 'approved',
          session_token = ?,
          claimed_at = ?,
@@ -242,6 +249,7 @@ function approvePairing(token, patientId, sessionTtlSeconds) {
      WHERE id = ? AND status = 'pending'`
   ).run(
     normalizedPatientId,
+    normalizedPatientName || null,
     sessionToken,
     ts,
     addSeconds(ts, normalizedSessionTtl),

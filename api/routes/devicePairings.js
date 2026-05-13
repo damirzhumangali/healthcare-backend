@@ -7,8 +7,11 @@ const router = express.Router();
 
 function getFrontUrl(token) {
   const base = String(process.env.FRONTEND_URL || "").trim();
-  if (!base) return `/pair?token=${encodeURIComponent(token)}`;
-  return `${base.replace(/\/$/, "")}/pair?token=${encodeURIComponent(token)}`;
+  const pairPath = `/pair?token=${encodeURIComponent(token)}`;
+  const loginPath = `/login?next=${encodeURIComponent(pairPath)}`;
+
+  if (!base) return loginPath;
+  return `${base.replace(/\/$/, "")}${loginPath}`;
 }
 
 function readPollSecret(req) {

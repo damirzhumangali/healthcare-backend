@@ -7,7 +7,7 @@ const {
   upsertMedicine,
 } = require("../services/aiKnowledgeBaseService");
 const { askMedicalAssistant, getConversationHistory } = require("../services/aiRagService");
-const { analyzeVitals } = require("../services/aiVitalsService");
+const { analyzeVitals } = require("../services/customAiEngine");
 
 const router = express.Router();
 

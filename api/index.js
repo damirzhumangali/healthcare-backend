@@ -526,19 +526,83 @@ app.get(CABINET_CALLBACK_PATH, async (req, res) => {
 // ───────────────────────────────────────────────────────────────────────────
 
 const BODY_PART_LABELS = {
-  head: "Head",
-  neck: "Neck",
-  chest: "Chest",
-  belly: "Belly",
-  back: "Back",
-  leftArm: "Left arm",
-  rightArm: "Right arm",
-  leftLeg: "Left leg",
-  rightLeg: "Right leg",
+  head: "Голова",
+  neck: "Шея",
+  chest: "Грудь",
+  belly: "Живот",
+  back: "Спина",
+  leftArm: "Левая рука",
+  rightArm: "Правая рука",
+  leftLeg: "Левая нога",
+  rightLeg: "Правая нога",
+  maleGroin: "Паховая область / мужские половые органы",
+  breasts: "Молочные железы",
+  femalePelvis: "Органы малого таза / гинекология",
 };
 
+function hasBreastComplaintSymptoms(symptoms) {
+  const normalized = String(symptoms || "").toLowerCase();
 
-function getFallbackTriageAdvice(bodyPart, locale, symptoms) {
+  return [
+    /молоч/u,
+    /сос(ок|ки|ка)?/u,
+    /лактац/u,
+    /мастит/u,
+    /уплотн/u,
+    /выделен/u,
+    /емшек/u,
+    /с[үу]т без/u,
+    /еміз/u,
+    /nipple/u,
+    /breast/u,
+    /lump/u,
+    /discharge/u,
+    /mastitis/u,
+    /lactat/u,
+  ].some((pattern) => pattern.test(normalized));
+}
+
+function getTriageSpecialistRecommendation({ bodyPart, sex, pregnant, symptoms }) {
+  if (sex === "female" && pregnant) {
+    return {
+      specialty: "Акушер-гинеколог",
+      reason: "указана беременность",
+    };
+  }
+
+  if (bodyPart === "maleGroin") {
+    return {
+      specialty: "Уролог",
+      reason: "жалоба относится к паховой области или мочеполовой системе",
+    };
+  }
+
+  if (bodyPart === "breasts") {
+    return {
+      specialty: "Маммолог / Гинеколог",
+      reason: "жалоба относится к молочным железам",
+    };
+  }
+
+  if (sex === "female" && bodyPart === "chest" && hasBreastComplaintSymptoms(symptoms)) {
+    return {
+      specialty: "Маммолог / Гинеколог",
+      reason: "в симптомах есть признаки жалобы на молочные железы",
+    };
+  }
+
+  if (bodyPart === "femalePelvis") {
+    return {
+      specialty: "Гинеколог",
+      reason: "жалоба относится к органам малого таза",
+    };
+  }
+
+  return null;
+}
+
+function getFallbackTriageAdvice(bodyPart, locale, symptoms, options = {}) {
+  const { sex, pregnant } = options;
   const labels = {
     ru: {
       head: "голове",
@@ -550,6 +614,9 @@ function getFallbackTriageAdvice(bodyPart, locale, symptoms) {
       rightArm: "правой руке",
       leftLeg: "левой ноге",
       rightLeg: "правой ноге",
+      maleGroin: "паховой области и половых органах",
+      breasts: "молочных железах",
+      femalePelvis: "области малого таза",
     },
     kk: {
       head: "баста",
@@ -561,6 +628,9 @@ function getFallbackTriageAdvice(bodyPart, locale, symptoms) {
       rightArm: "оң қолда",
       leftLeg: "сол аяқта",
       rightLeg: "оң аяқта",
+      maleGroin: "шат аймағында және жыныс мүшелерінде",
+      breasts: "сүт бездерінде",
+      femalePelvis: "кіші жамбас аймағында",
     },
     en: {
       head: "head",
@@ -572,18 +642,27 @@ function getFallbackTriageAdvice(bodyPart, locale, symptoms) {
       rightArm: "right arm",
       leftLeg: "left leg",
       rightLeg: "right leg",
+      maleGroin: "male groin or genitals",
+      breasts: "breasts",
+      femalePelvis: "female pelvis",
     },
   };
 
   const userSymptoms = String(symptoms || "").trim();
+  const specialistRecommendation = getTriageSpecialistRecommendation({
+    bodyPart,
+    sex,
+    pregnant,
+    symptoms,
+  });
 
   if (locale === "kk") {
-    return `Сіз ${labels.kk[bodyPart]} ауырсынуды белгіледіңіз.${userSymptoms ? ` Көрсетілген симптомдар: ${userSymptoms}.` : ""} Бұл диагноз емес: симптомдар күшейсе немесе басылмаса, дәрігерге көрініңіз. Қатты ентігу, кеуде ауыруы, есінен тану, құрысу, қан кету болса жедел жәрдем шақырыңыз. Қазір демалып, суды жеткілікті ішіп, дене қызуын және жалпы жағдайды бақылаңыз.`;
+    return `Сіз ${labels.kk[bodyPart]} ауырсынуды белгіледіңіз.${userSymptoms ? ` Көрсетілген симптомдар: ${userSymptoms}.` : ""}${specialistRecommendation ? ` Ұсынылатын маман: ${specialistRecommendation.specialty}.` : ""} Бұл диагноз емес: симптомдар күшейсе немесе басылмаса, дәрігерге көрініңіз. Қатты ентігу, кеуде ауыруы, есінен тану, құрысу, қан кету болса жедел жәрдем шақырыңыз. Қазір демалып, суды жеткілікті ішіп, дене қызуын және жалпы жағдайды бақылаңыз.`;
   }
   if (locale === "en") {
-    return `You selected pain in the ${labels.en[bodyPart]}.${userSymptoms ? ` Reported symptoms: ${userSymptoms}.` : ""} This is not a diagnosis: if symptoms worsen or persist, contact a clinician. Seek emergency care immediately for severe chest pain, shortness of breath, fainting, seizures, or bleeding. For now, rest, hydrate, and monitor your temperature and overall condition.`;
+    return `You selected pain in the ${labels.en[bodyPart]}.${userSymptoms ? ` Reported symptoms: ${userSymptoms}.` : ""}${specialistRecommendation ? ` Suggested specialist: ${specialistRecommendation.specialty}.` : ""} This is not a diagnosis: if symptoms worsen or persist, contact a clinician. Seek emergency care immediately for severe chest pain, shortness of breath, fainting, seizures, or bleeding. For now, rest, hydrate, and monitor your temperature and overall condition.`;
   }
-  return `Вы отметили боль в ${labels.ru[bodyPart]}.${userSymptoms ? ` Указанные симптомы: ${userSymptoms}.` : ""} Это не диагноз: если симптомы усиливаются или не проходят, обратитесь к врачу. Срочно вызывайте скорую при сильной боли в груди, одышке, потере сознания, судорогах или кровотечении. Пока наблюдайте за состоянием, пейте воду и по возможности ограничьте нагрузку.`;
+  return `Вы отметили боль в ${labels.ru[bodyPart]}.${userSymptoms ? ` Указанные симптомы: ${userSymptoms}.` : ""}${specialistRecommendation ? ` Рекомендуемый специалист: ${specialistRecommendation.specialty}.` : ""} Это не диагноз: если симптомы усиливаются или не проходят, обратитесь к врачу. Срочно вызывайте скорую при сильной боли в груди, одышке, потере сознания, судорогах или кровотечении. Пока наблюдайте за состоянием, пейте воду и по возможности ограничьте нагрузку.`;
 }
 
 app.post("/api/triage", triageRateLimit, async (req, res) => {
@@ -591,10 +670,18 @@ app.post("/api/triage", triageRateLimit, async (req, res) => {
   let locale = "ru";
   try {
     ({ bodyPart, locale = "ru" } = req.body || {});
-    const { symptoms = "", painLevel, patient_id } = req.body || {};
+    const { symptoms = "", painLevel, patient_id, sex, pregnant } = req.body || {};
     const pain = Number.isFinite(Number(painLevel))
       ? Math.max(0, Math.min(10, Number(painLevel)))
       : null;
+    const normalizedSex = sex === "female" || sex === "male" ? sex : null;
+    const normalizedPregnant = normalizedSex === "female" && Boolean(pregnant);
+    const specialistRecommendation = getTriageSpecialistRecommendation({
+      bodyPart,
+      sex: normalizedSex,
+      pregnant: normalizedPregnant,
+      symptoms,
+    });
 
     if (!bodyPart || !BODY_PART_LABELS[bodyPart]) {
       return res.status(400).json({ error: "triage_failed" });
@@ -602,17 +689,29 @@ app.post("/api/triage", triageRateLimit, async (req, res) => {
 
     const bodyPartLabel = BODY_PART_LABELS[bodyPart];
     const questionParts = [`Беспокоит область: ${bodyPartLabel}.`];
+    if (normalizedSex === "male") questionParts.push("Пол пациента: мужской.");
+    if (normalizedSex === "female") questionParts.push("Пол пациента: женский.");
+    if (normalizedPregnant) questionParts.push("Пациентка беременна.");
     if (pain !== null) questionParts.push(`Уровень боли: ${pain}/10.`);
     const trimmedSymptoms = String(symptoms).trim();
     if (trimmedSymptoms) questionParts.push(`Симптомы: ${trimmedSymptoms}.`);
-    questionParts.push("Что это может быть и какие препараты помогут?");
+    if (specialistRecommendation) {
+      questionParts.push(`Предварительно подходит специалист: ${specialistRecommendation.specialty}.`);
+    }
+    questionParts.push("Что это может быть, какой специалист может подойти и какие препараты помогут?");
     const question = questionParts.join(" ");
 
     const patientId = String(patient_id || "guest").trim();
     const { askMedicalAssistant } = require("./services/aiRagService");
     const result = await askMedicalAssistant({ patientId, question });
 
-    return res.json({ answer: result.answer, source: "rag", sources: result.sources });
+    return res.json({
+      answer: result.answer,
+      source: "rag",
+      sources: result.sources,
+      recommendedSpecialist: specialistRecommendation?.specialty || null,
+      specialistReason: specialistRecommendation?.reason || null,
+    });
   } catch (e) {
     console.error(
       "triage_error:",
@@ -620,9 +719,22 @@ app.post("/api/triage", triageRateLimit, async (req, res) => {
       e?.cause?.message ? `cause: ${e.cause.message}` : ""
     );
     const symptoms = req.body?.symptoms || "";
+    const sex = req.body?.sex;
+    const pregnant = req.body?.pregnant;
+    const specialistRecommendation = getTriageSpecialistRecommendation({
+      bodyPart,
+      sex: sex === "female" || sex === "male" ? sex : null,
+      pregnant: sex === "female" && Boolean(pregnant),
+      symptoms,
+    });
     return res.json({
-      answer: getFallbackTriageAdvice(bodyPart, locale, symptoms),
+      answer: getFallbackTriageAdvice(bodyPart, locale, symptoms, {
+        sex,
+        pregnant,
+      }),
       source: "fallback",
+      recommendedSpecialist: specialistRecommendation?.specialty || null,
+      specialistReason: specialistRecommendation?.reason || null,
     });
   }
 });

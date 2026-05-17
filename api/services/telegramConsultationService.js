@@ -88,9 +88,10 @@ function createConsultation(input) {
   return item;
 }
 
-function acceptConsultation(id, meetingAt) {
+function acceptConsultation(id, meetingAt, doctorId) {
   const consultationId = normalizeText(id);
   const at = normalizeText(meetingAt);
+  const doctor = normalizeText(doctorId) || null;
 
   if (!consultationId) {
     const error = new Error("missing_consultation_id");
@@ -122,9 +123,9 @@ function acceptConsultation(id, meetingAt) {
 
   db.prepare(
     `UPDATE telegram_consultations
-     SET meeting_url = ?, meeting_at = ?, status = 'reviewed', updated_at = ?
+     SET meeting_url = ?, meeting_at = ?, doctor_id = ?, status = 'reviewed', updated_at = ?
      WHERE id = ?`
-  ).run(meetingUrl, meetingAtIso, updatedAt, consultationId);
+  ).run(meetingUrl, meetingAtIso, doctor, updatedAt, consultationId);
 
   const updated = db.prepare("SELECT * FROM telegram_consultations WHERE id = ?").get(consultationId);
   bus.emit(CHANGE_EVENT, { type: "accepted", item: updated });

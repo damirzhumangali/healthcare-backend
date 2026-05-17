@@ -17,6 +17,7 @@ function publicDoctor(row) {
     email: row.email,
     name: row.name,
     specialty: row.specialty,
+    telegram_chat_id: row.telegram_chat_id || null,
     active: Boolean(row.active),
     created_at: row.created_at,
     updated_at: row.updated_at,
@@ -38,6 +39,7 @@ function createDoctor(input) {
     email: normalizeEmail(input.email),
     name: String(input.name || "").trim(),
     specialty: String(input.specialty || "").trim(),
+    telegram_chat_id: String(input.telegram_chat_id || "").trim() || null,
     active: input.active === false ? 0 : 1,
     created_at: ts,
     updated_at: ts,
@@ -55,7 +57,7 @@ function createDoctor(input) {
   }
 
   db.prepare(
-    "INSERT INTO doctors(id, user_id, email, name, specialty, active, created_at, updated_at) VALUES (@id, @user_id, @email, @name, @specialty, @active, @created_at, @updated_at)"
+    "INSERT INTO doctors(id, user_id, email, name, specialty, telegram_chat_id, active, created_at, updated_at) VALUES (@id, @user_id, @email, @name, @specialty, @telegram_chat_id, @active, @created_at, @updated_at)"
   ).run(doctor);
 
   if (doctor.user_id) {
@@ -75,6 +77,9 @@ function updateDoctor(id, input) {
     email: input.email === undefined ? existing.email : normalizeEmail(input.email),
     name: input.name === undefined ? existing.name : String(input.name || "").trim(),
     specialty: input.specialty === undefined ? existing.specialty : String(input.specialty || "").trim(),
+    telegram_chat_id: input.telegram_chat_id === undefined
+      ? (existing.telegram_chat_id || null)
+      : String(input.telegram_chat_id || "").trim() || null,
     active: input.active === undefined ? existing.active : input.active ? 1 : 0,
     updated_at: ts,
   };
@@ -91,7 +96,7 @@ function updateDoctor(id, input) {
   }
 
   db.prepare(
-    "UPDATE doctors SET user_id = @user_id, email = @email, name = @name, specialty = @specialty, active = @active, updated_at = @updated_at WHERE id = @id"
+    "UPDATE doctors SET user_id = @user_id, email = @email, name = @name, specialty = @specialty, telegram_chat_id = @telegram_chat_id, active = @active, updated_at = @updated_at WHERE id = @id"
   ).run(next);
 
   if (next.user_id) {

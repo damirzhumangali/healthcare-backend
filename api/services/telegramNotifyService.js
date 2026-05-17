@@ -52,4 +52,29 @@ function formatMeetingMessage({ patientName, meetingUrl, meetingAt }) {
   );
 }
 
-module.exports = { sendBotMessage, formatMeetingMessage };
+function formatDoctorMeetingMessage({ patientName, problem, meetingUrl, meetingAt }) {
+  const when = new Date(meetingAt);
+  const formatted = Number.isNaN(when.getTime())
+    ? meetingAt
+    : when.toLocaleString("ru-RU", {
+        timeZone: "Asia/Almaty",
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+
+  const patient = patientName ? `<b>${patientName}</b>` : "пациент";
+  const complaint = problem ? `\n📋 Жалоба: ${problem}` : "";
+
+  return (
+    `👨‍⚕️ Новая онлайн-консультация назначена.\n\n` +
+    `Пациент: ${patient}${complaint}\n\n` +
+    `🕐 Время: <b>${formatted}</b> (Алматы)\n` +
+    `🔗 Ссылка: ${meetingUrl}\n\n` +
+    `Откройте ссылку за 2-3 минуты до начала.`
+  );
+}
+
+module.exports = { sendBotMessage, formatMeetingMessage, formatDoctorMeetingMessage };

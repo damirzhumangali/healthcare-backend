@@ -4,7 +4,7 @@ const { requireAdmin, isAdminUser } = require("../middleware/roles");
 const { db } = require("../db/sqlite");
 const doctorService = require("../services/doctorService");
 const telegramConsultationService = require("../services/telegramConsultationService");
-const telegramNotifyService = require("../services/telegramNotifyService");
+const appointmentService = require("../services/appointmentService");
 const userService = require("../services/userService");
 const bus = require("../services/eventBus");
 
@@ -121,33 +121,50 @@ router.patch("/telegram-consultations/:id/status", (req, res, next) => {
 
 router.post("/telegram-consultations/:id/accept", async (req, res, next) => {
   try {
+    const doctorId = String(req.body?.doctor_id || "").trim() || null;
+
     const item = telegramConsultationService.acceptConsultation(
       req.params.id,
-      req.body?.meeting_at
+      req.body?.meeting_at,
+      doctorId
     );
 
     if (!item) {
       return res.status(404).json({ error: "not_found" });
     }
 
-    let notified = false;
-    let notifyError = null;
-    try {
-      await telegramNotifyService.sendBotMessage(
-        item.chat_id,
-        telegramNotifyService.formatMeetingMessage({
-          patientName: item.patient_name,
-          meetingUrl: item.meeting_url,
-          meetingAt: item.meeting_at,
-        })
-      );
-      notified = true;
-    } catch (error) {
-      notifyError = error?.message || "telegram_send_failed";
-      console.error("telegram_notify_failed:", notifyError, error?.details || "");
+    // Create appointment so the doctor's schedule shows this slot as busy
+    // Use the same meeting_url as the consultation so patient and doctor get identical link
+    let appointment = null;
+    if (doctorId && item.meeting_at) {
+      try {
+        const meetingDate = new Date(item.meeting_at);
+        const dateStr = meetingDate.toISOString().slice(0, 10);
+        const timeStr = meetingDate.toLocaleTimeString("ru-RU", {
+          timeZone: "Asia/Almaty",
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: false,
+        });
+        appointment = appointmentService.createAppointment({
+          patient_id: item.patient_id || `web_${item.chat_id}`,
+          doctor_id: doctorId,
+          date: dateStr,
+          time: timeStr,
+          reason: item.problem || "Онлайн-консультация",
+          status: "active",
+          meeting_url: item.meeting_url,
+        });
+      } catch (apptErr) {
+        console.error("appointment_create_failed:", apptErr?.message || apptErr);
+      }
     }
 
-    return res.status(200).json({ item, consultation: item, notified, notify_error: notifyError });
+    return res.status(200).json({
+      item,
+      consultation: item,
+      appointment,
+    });
   } catch (error) {
     if (error?.statusCode) {
       return res.status(error.statusCode).json({ error: error.message });

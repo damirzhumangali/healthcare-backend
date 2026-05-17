@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>HealthAssist AI Chat</title>
+    <style>
+      :root {
+        --bg: #f4efe6;
+        --panel: rgba(255, 251, 245, 0.92);
+        --panel-strong: #fffaf3;
+        --line: rgba(110, 87, 54, 0.16);
+        --text: #2d2317;
+        --muted: #7c6a55;
+        --accent: #0f766e;
+        --accent-soft: rgba(15, 118, 110, 0.12);
+        --warn: #7f1d1d;
+        --shadow: 0 24px 70px rgba(60, 41, 13, 0.12);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        color: var(--text);
+        background:
+          radial-gradient(circle at top left, rgba(15, 118, 110, 0.12), transparent 32%),
+          radial-gradient(circle at bottom right, rgba(180, 83, 9, 0.12), transparent 28%),
+          linear-gradient(160deg, #f7f1e8 0%, #efe4d1 100%);
+      }
+
+      .shell {
+        width: min(960px, calc(100% - 32px));
+        margin: 32px auto;
+      }
+
+      .hero,
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 24px;
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(12px);
+      }
+
+      .hero {
+        padding: 28px;
+        margin-bottom: 20px;
+      }
+
+      .hero h1 {
+        margin: 0 0 10px;
+        font-size: clamp(28px, 5vw, 42px);
+        line-height: 1;
+      }
+
+      .hero p {
+        margin: 0;
+        max-width: 680px;
+        color: var(--muted);
+        line-height: 1.55;
+      }
+
+      .pill-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 18px;
+      }
+
+      .pill {
+        padding: 8px 12px;
+        border-radius: 999px;
+        background: var(--accent-soft);
+        color: var(--accent);
+        font-size: 13px;
+        font-weight: 600;
+      }
+
+      .layout {
+        display: grid;
+        gap: 20px;
+      }
+
+      .panel {
+        padding: 22px;
+      }
+
+      .panel h2 {
+        margin: 0 0 16px;
+        font-size: 18px;
+      }
+
+      .history {
+        display: grid;
+        gap: 14px;
+      }
+
+      .empty {
+        padding: 18px;
+        border-radius: 18px;
+        border: 1px dashed var(--line);
+        color: var(--muted);
+        background: rgba(255, 255, 255, 0.48);
+      }
+
+      .entry {
+        padding: 18px;
+        border-radius: 20px;
+        background: var(--panel-strong);
+        border: 1px solid var(--line);
+      }
+
+      .entry-label {
+        margin-bottom: 6px;
+        color: var(--muted);
+        font-size: 12px;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      .entry-question {
+        font-weight: 700;
+        margin-bottom: 12px;
+      }
+
+      .entry-answer {
+        white-space: pre-wrap;
+        line-height: 1.55;
+      }
+
+      .entry-disclaimer {
+        margin-top: 12px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .tag-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 12px;
+      }
+
+      .tag {
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: rgba(45, 35, 23, 0.07);
+        color: var(--text);
+        font-size: 12px;
+      }
+
+      form {
+        display: grid;
+        gap: 12px;
+      }
+
+      textarea {
+        width: 100%;
+        min-height: 128px;
+        resize: vertical;
+        padding: 16px;
+        border-radius: 18px;
+        border: 1px solid var(--line);
+        background: #fffdf8;
+        color: var(--text);
+        font: inherit;
+        line-height: 1.5;
+      }
+
+      button {
+        border: 0;
+        border-radius: 16px;
+        padding: 14px 18px;
+        font: inherit;
+        font-weight: 700;
+        cursor: pointer;
+        color: white;
+        background: linear-gradient(135deg, #0f766e 0%, #115e59 100%);
+        transition: transform 120ms ease, box-shadow 120ms ease;
+        box-shadow: 0 12px 24px rgba(15, 118, 110, 0.26);
+      }
+
+      button:hover {
+        transform: translateY(-1px);
+      }
+
+      button:disabled {
+        cursor: wait;
+        opacity: 0.7;
+        transform: none;
+      }
+
+      .status {
+        min-height: 20px;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .status.error {
+        color: var(--warn);
+      }
+
+      @media (max-width: 640px) {
+        .shell {
+          width: min(100% - 20px, 960px);
+          margin: 20px auto;
+        }
+
+        .hero,
+        .panel {
+          border-radius: 20px;
+          padding: 18px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <h1>Medical AI Assistant</h1>
+        <p>
+          Этот чат отвечает только по данным из локальной базы знаний с PostgreSQL
+          и pgvector. Он не ставит диагноз и после каждого ответа напоминает о
+          консультации с врачом.
+        </p>
+        <div class="pill-row">
+          <span class="pill">RAG на PostgreSQL + pgvector</span>
+          <span class="pill">Ollama llama3</span>
+          <span class="pill" id="patient-pill">Пациент: 1</span>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>История консультаций</h2>
+        <div id="history" class="history">
+          <div class="empty">История пока пуста.</div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Задать вопрос</h2>
+        <form id="chat-form">
+          <textarea
+            id="question"
+            placeholder="Например: что можно принять при температуре и боли в горле?"
+            required
+          ></textarea>
+          <button id="submit-button" type="submit">Отправить вопрос</button>
+          <div id="status" class="status"></div>
+        </form>
+      </section>
+    </main>
+
+    <script>
+      const DISCLAIMER =
+        "Проконсультируйтесь с врачом перед применением любого лекарства.";
+      const patientId = new URLSearchParams(window.location.search).get("patient_id") || "1";
+      const historyNode = document.getElementById("history");
+      const form = document.getElementById("chat-form");
+      const questionInput = document.getElementById("question");
+      const submitButton = document.getElementById("submit-button");
+      const statusNode = document.getElementById("status");
+      const patientPill = document.getElementById("patient-pill");
+
+      patientPill.textContent = `Пациент: ${patientId}`;
+
+      function extractAnswerBody(answer) {
+        const text = String(answer || "").trim();
+        if (!text.endsWith(DISCLAIMER)) return text;
+        return text.slice(0, text.length - DISCLAIMER.length).trim();
+      }
+
+      function createTagRow(sources) {
+        if (!Array.isArray(sources) || sources.length === 0) return "";
+        return `
+          <div class="tag-row">
+            ${sources.map((source) => `<span class="tag">${source}</span>`).join("")}
+          </div>
+        `;
+      }
+
+      function renderEntry(item) {
+        return `
+          <article class="entry">
+            <div class="entry-label">${new Date(item.created_at || Date.now()).toLocaleString("ru-RU")}</div>
+            <div class="entry-question">${item.question}</div>
+            <div class="entry-answer">${extractAnswerBody(item.answer)}</div>
+            ${createTagRow(item.sources_used || item.sources || [])}
+            <div class="entry-disclaimer">${item.disclaimer || DISCLAIMER}</div>
+          </article>
+        `;
+      }
+
+      function renderHistory(items) {
+        if (!Array.isArray(items) || items.length === 0) {
+          historyNode.innerHTML = '<div class="empty">История пока пуста.</div>';
+          return;
+        }
+
+        historyNode.innerHTML = items.map(renderEntry).join("");
+      }
+
+      async function loadHistory() {
+        const response = await fetch(`/api/ai/history/${encodeURIComponent(patientId)}`);
+        if (!response.ok) {
+          throw new Error("Не удалось загрузить историю.");
+        }
+
+        const data = await response.json();
+        renderHistory(data.history || data.items || []);
+      }
+
+      async function askQuestion(question) {
+        const response = await fetch("/api/ai/ask", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            patient_id: patientId,
+            question,
+          }),
+        });
+
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(data.error || "Не удалось получить ответ.");
+        }
+
+        return data;
+      }
+
+      function setStatus(message, isError = false) {
+        statusNode.textContent = message || "";
+        statusNode.className = isError ? "status error" : "status";
+      }
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const question = questionInput.value.trim();
+        if (!question) return;
+
+        submitButton.disabled = true;
+        setStatus("Ищу подходящие записи в базе знаний и формирую ответ...");
+
+        try {
+          const data = await askQuestion(question);
+          questionInput.value = "";
+          const currentItems = Array.from(historyNode.querySelectorAll(".entry")).map(
+            (node) => node.outerHTML
+          );
+
+          const newItem = {
+            question,
+            answer: data.answer,
+            disclaimer: data.disclaimer || DISCLAIMER,
+            sources_used: data.sources || [],
+            created_at: new Date().toISOString(),
+          };
+
+          historyNode.innerHTML = [renderEntry(newItem), ...currentItems].join("");
+          setStatus("Ответ готов.");
+        } catch (error) {
+          setStatus(error.message || "Произошла ошибка.", true);
+        } finally {
+          submitButton.disabled = false;
+        }
+      });
+
+      loadHistory().catch((error) => {
+        setStatus(error.message || "Не удалось загрузить историю.", true);
+      });
+    </script>
+  </body>
+</html>

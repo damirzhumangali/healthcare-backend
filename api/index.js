@@ -6,9 +6,11 @@ console.log('BOOT FILE:', __filename);
 const express = require("express");
 const cors = require("cors");
 const dotenv = require("dotenv");
+dotenv.config();
+const path = require("path");
 const jwt = require("jsonwebtoken");
 const { OAuth2Client } = require("google-auth-library");
-const Anthropic = require("@anthropic-ai/sdk");
+const { askMedicalAssistant } = require("./services/aiRagService");
 const { requireJwt } = require("./middleware/auth");
 const userService = require("./services/userService");
 const { db } = require("./db/sqlite");
@@ -16,22 +18,22 @@ let ticketsRoutes = null;
 let appointmentsRoutes = null;
 let doctorsRoutes = null;
 let adminRoutes = null;
-let telegramRoutes = null;
 let measurementsRoutes = null;
 let devicePairingsRoutes = null;
 let deviceRoutes = null;
 let servoControlRoutes = null;
+let aiRoutes = null;
+let consultationsRoutes = null;
 try { ticketsRoutes = require("./routes/tickets"); } catch(e) { console.error("tickets_load_error:", e.message); }
 try { appointmentsRoutes = require("./routes/appointments"); } catch(e) { console.error("appointments_load_error:", e.message); }
 try { doctorsRoutes = require("./routes/doctors"); } catch(e) { console.error("doctors_load_error:", e.message); }
 try { adminRoutes = require("./routes/admin"); } catch(e) { console.error("admin_load_error:", e.message); }
-try { telegramRoutes = require("./routes/telegram"); } catch(e) { console.error("telegram_load_error:", e.message); }
 try { measurementsRoutes = require("./routes/measurements"); } catch(e) { console.error("measurements_load_error:", e.message); }
 try { devicePairingsRoutes = require("./routes/devicePairings"); } catch(e) { console.error("device_pairings_load_error:", e.message); }
 try { deviceRoutes = require("./routes/device"); } catch(e) { console.error("device_load_error:", e.message); }
 try { servoControlRoutes = require("./routes/servoControl"); } catch(e) { console.error("servo_control_load_error:", e.message); }
-
-dotenv.config();
+try { aiRoutes = require("./routes/ai"); } catch(e) { console.error("ai_load_error:", e.message); }
+try { consultationsRoutes = require("./routes/consultations"); } catch(e) { console.error("consultations_load_error:", e.message); }
 
 const app = express();
 app.disable("x-powered-by");
@@ -215,14 +217,6 @@ const oauthClient = new OAuth2Client(
   redirectUri
 );
 
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
-
-const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-1.5-flash-latest";
-const GROQ_MODEL = process.env.GROQ_MODEL || "llama-3.1-8b-instant";
-const TRIAGE_MAX_TOKENS = Number(process.env.TRIAGE_MAX_TOKENS) || 900;
-
 function isLocalDevRequest(req) {
   if (IS_PRODUCTION) return false;
   const values = [req.headers.origin, req.headers.referer, req.headers.host]
@@ -382,11 +376,147 @@ if (ticketsRoutes) app.use("/api/tickets", ticketsRoutes);
 if (appointmentsRoutes) app.use("/api/appointments", appointmentsRoutes);
 if (doctorsRoutes) app.use("/api/doctors", doctorsRoutes);
 if (adminRoutes) app.use("/api/admin", adminRoutes);
-if (telegramRoutes) app.use("/api/telegram", telegramRoutes);
+if (consultationsRoutes) app.use("/api/consultations", consultationsRoutes);
 if (measurementsRoutes) app.use("/api/measurements", measurementsRoutes);
 if (devicePairingsRoutes) app.use("/api/device-pairings", devicePairingsRoutes);
 if (deviceRoutes) app.use("/api/device", deviceRoutes);
 if (servoControlRoutes) app.use("/api/servo-control", servoControlRoutes);
+if (aiRoutes) app.use("/api/ai", aiRoutes);
+
+app.get("/ai-chat", (req, res) => {
+  res.set(
+    "Content-Security-Policy",
+    "default-src 'self'; connect-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+  );
+  res.sendFile(path.join(__dirname, "public", "ai-chat.html"));
+});
+
+// ── Doctor portal ──────────────────────────────────────────────────────────
+
+const DOCTOR_CALLBACK_PATH = "/doctor/callback";
+
+function getDoctorOauthClient() {
+  const serverUrl = process.env.SERVER_URL || `http://localhost:${PORT}`;
+  const redirectUri = `${serverUrl}${DOCTOR_CALLBACK_PATH}`;
+  return new OAuth2Client(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET,
+    redirectUri
+  );
+}
+
+app.get("/doctor", (req, res) => {
+  res.set(
+    "Content-Security-Policy",
+    "default-src 'self'; connect-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+  );
+  res.sendFile(path.join(__dirname, "public", "doctor.html"));
+});
+
+app.get("/doctor/auth/url", (req, res) => {
+  const client = getDoctorOauthClient();
+  const url = client.generateAuthUrl({
+    scope: ["openid", "email", "profile"],
+    access_type: "offline",
+    prompt: "consent",
+  });
+  res.json({ url });
+});
+
+app.get(DOCTOR_CALLBACK_PATH, async (req, res) => {
+  const { code, error } = req.query;
+  if (error || !code) {
+    return res.redirect(`/doctor?auth_error=${encodeURIComponent(error || "no_code")}`);
+  }
+  try {
+    const client = getDoctorOauthClient();
+    const { tokens } = await client.getToken(String(code));
+    if (!tokens.id_token) throw new Error("no_id_token");
+
+    const ticket = await client.verifyIdToken({
+      idToken: tokens.id_token,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+    const payload = ticket.getPayload();
+    const oauthUser = {
+      id: payload.sub,
+      email: payload.email,
+      name: payload.name,
+      picture: payload.picture,
+    };
+
+    const user = userService.upsertOAuthUser(oauthUser);
+    const token = jwt.sign(user, process.env.JWT_SECRET, { expiresIn: "7d" });
+    setAuthCookie(res, token);
+    res.redirect("/doctor");
+  } catch (e) {
+    console.error("doctor_oauth_error:", e?.message || e);
+    res.redirect(`/doctor?auth_error=${encodeURIComponent("auth_failed")}`);
+  }
+});
+
+// ── Patient cabinet ────────────────────────────────────────────────────────
+
+const CABINET_CALLBACK_PATH = "/cabinet/callback";
+
+function getCabinetOauthClient() {
+  const serverUrl = process.env.SERVER_URL || `http://localhost:${PORT}`;
+  return new OAuth2Client(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET,
+    `${serverUrl}${CABINET_CALLBACK_PATH}`
+  );
+}
+
+app.get("/cabinet", (req, res) => {
+  res.set(
+    "Content-Security-Policy",
+    "default-src 'self'; connect-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+  );
+  res.sendFile(path.join(__dirname, "public", "cabinet.html"));
+});
+
+app.get("/cabinet/auth/url", (req, res) => {
+  const client = getCabinetOauthClient();
+  const url = client.generateAuthUrl({
+    scope: ["openid", "email", "profile"],
+    access_type: "offline",
+    prompt: "consent",
+  });
+  res.json({ url });
+});
+
+app.get(CABINET_CALLBACK_PATH, async (req, res) => {
+  const { code, error } = req.query;
+  if (error || !code) {
+    return res.redirect(`/cabinet?auth_error=${encodeURIComponent(error || "no_code")}`);
+  }
+  try {
+    const client = getCabinetOauthClient();
+    const { tokens } = await client.getToken(String(code));
+    if (!tokens.id_token) throw new Error("no_id_token");
+
+    const ticket = await client.verifyIdToken({
+      idToken: tokens.id_token,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+    const payload = ticket.getPayload();
+    const user = userService.upsertOAuthUser({
+      id: payload.sub,
+      email: payload.email,
+      name: payload.name,
+      picture: payload.picture,
+    });
+    const token = jwt.sign(user, process.env.JWT_SECRET, { expiresIn: "7d" });
+    setAuthCookie(res, token);
+    res.redirect("/cabinet");
+  } catch (e) {
+    console.error("cabinet_oauth_error:", e?.message || e);
+    res.redirect(`/cabinet?auth_error=${encodeURIComponent("auth_failed")}`);
+  }
+});
+
+// ───────────────────────────────────────────────────────────────────────────
 
 const BODY_PART_LABELS = {
   head: "Head",
@@ -400,17 +530,6 @@ const BODY_PART_LABELS = {
   rightLeg: "Right leg",
 };
 
-function getLocaleInstruction(locale) {
-  if (locale === "kk") return "Respond in Kazakh language.";
-  if (locale === "en") return "Respond in English language.";
-  return "Respond in Russian language.";
-}
-
-function getLanguageName(locale) {
-  if (locale === "kk") return "Kazakh";
-  if (locale === "en") return "English";
-  return "Russian";
-}
 
 function getFallbackTriageAdvice(bodyPart, locale, symptoms) {
   const labels = {
@@ -460,165 +579,12 @@ function getFallbackTriageAdvice(bodyPart, locale, symptoms) {
   return `Вы отметили боль в ${labels.ru[bodyPart]}.${userSymptoms ? ` Указанные симптомы: ${userSymptoms}.` : ""} Это не диагноз: если симптомы усиливаются или не проходят, обратитесь к врачу. Срочно вызывайте скорую при сильной боли в груди, одышке, потере сознания, судорогах или кровотечении. Пока наблюдайте за состоянием, пейте воду и по возможности ограничьте нагрузку.`;
 }
 
-function buildTriagePrompt({
-  localeInstruction,
-  locale,
-  selectedBodyPart,
-  symptoms,
-  painLevel,
-}) {
-  return [
-    "User asks for initial medical triage guidance.",
-    localeInstruction,
-    `Selected body part: ${selectedBodyPart}`,
-    `Pain level: ${
-      painLevel !== null && painLevel !== undefined ? `${painLevel}/10` : "Not provided"
-    }`,
-    `Symptoms: ${String(symptoms).trim() || "Not provided"}`,
-    "",
-    "Requirements:",
-    "- This is NOT a diagnosis.",
-    `- Output language must be strictly ${getLanguageName(locale)} only. Do not mix with other languages.`,
-    "- Keep response practical and structured with short sections/bullets.",
-    "- Keep total response under 1600 characters and ensure the final sentence is complete (no cut-off endings).",
-    "- Include: likely non-emergency possibilities (without certainty), immediate self-care steps for the next 24 hours, what to avoid.",
-    "- Include gentle home exercises/mobility suggestions ONLY if generally safe for this complaint.",
-    "- Include OTC medicine options for adults when appropriate (examples only), with major safety cautions/contraindications and a note to follow package instructions.",
-    "- Do NOT provide prescription-only treatment plans and do NOT present medication as guaranteed cure.",
-    "- Mention warning red flags and when to seek urgent/emergency care.",
-    "- Suggest what to monitor and which specialist to contact next.",
-    "- Keep tone calm, supportive, and safety-first.",
-  ].join("\n");
-}
-
-async function askClaude(prompt) {
-  const response = await anthropic.messages.create({
-    model: process.env.CLAUDE_MODEL || "claude-3-5-sonnet-latest",
-    max_tokens: TRIAGE_MAX_TOKENS,
-    temperature: 0.2,
-    system:
-      "You are a cautious medical triage assistant. You provide safety-first guidance, never claim definitive diagnosis, and avoid unsafe prescribing.",
-    messages: [{ role: "user", content: prompt }],
-  });
-
-  return (
-    response.content
-      ?.map((chunk) => (chunk.type === "text" ? chunk.text : ""))
-      .join("\n")
-      .trim() || ""
-  );
-}
-
-async function askGemini(prompt, apiKey) {
-  const candidateModels = [
-    GEMINI_MODEL,
-    "gemini-1.5-flash-latest",
-    "gemini-1.5-pro-latest",
-    "gemini-2.0-flash",
-    "gemini-2.0-flash-lite",
-  ];
-
-  // Try to discover available models for this key/project first.
-  try {
-    const listRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`
-    );
-    if (listRes.ok) {
-      const listData = await listRes.json();
-      const discovered = (listData?.models || [])
-        .filter((m) =>
-          Array.isArray(m?.supportedGenerationMethods)
-            ? m.supportedGenerationMethods.includes("generateContent")
-            : false
-        )
-        .map((m) => String(m.name || "").replace(/^models\//, ""))
-        .filter(Boolean);
-
-      if (discovered.length > 0) {
-        // Put discovered models first, keep existing fallbacks after.
-        for (const model of [...discovered, ...candidateModels]) {
-          if (!candidateModels.includes(model)) candidateModels.push(model);
-        }
-      }
-    }
-  } catch {
-    // Ignore discovery errors and continue with static fallback models.
-  }
-
-  let lastError = "unknown";
-
-  for (const model of candidateModels) {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-    const response = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.2,
-          maxOutputTokens: TRIAGE_MAX_TOKENS,
-        },
-      }),
-    });
-
-    if (!response.ok) {
-      const errText = await response.text();
-      lastError = `model=${model} status=${response.status} body=${errText}`;
-      // Try next model on 404/400. Keep last error for final throw.
-      if (response.status === 404 || response.status === 400) continue;
-      throw new Error(`Gemini API ${lastError}`);
-    }
-
-    const data = await response.json();
-    const text =
-      data?.candidates?.[0]?.content?.parts
-        ?.map((p) => p?.text || "")
-        .join("\n")
-        .trim() || "";
-    if (text) return text;
-    lastError = `model=${model} returned empty text`;
-  }
-
-  throw new Error(`Gemini API failed for all models: ${lastError}`);
-}
-
-async function askGroq(prompt, apiKey) {
-  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: GROQ_MODEL,
-      temperature: 0.2,
-      max_tokens: TRIAGE_MAX_TOKENS,
-      messages: [
-        {
-          role: "system",
-          content:
-            "You are a cautious medical triage assistant. You provide safety-first guidance, never claim definitive diagnosis, and avoid unsafe prescribing.",
-        },
-        { role: "user", content: prompt },
-      ],
-    }),
-  });
-
-  if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`Groq API ${response.status}: ${errText}`);
-  }
-
-  const data = await response.json();
-  return data?.choices?.[0]?.message?.content?.trim() || "";
-}
-
 app.post("/api/triage", triageRateLimit, async (req, res) => {
   let bodyPart = "head";
   let locale = "ru";
   try {
     ({ bodyPart, locale = "ru" } = req.body || {});
-    const { symptoms = "", painLevel } = req.body || {};
+    const { symptoms = "", painLevel, patient_id } = req.body || {};
     const pain = Number.isFinite(Number(painLevel))
       ? Math.max(0, Math.min(10, Number(painLevel)))
       : null;
@@ -627,45 +593,18 @@ app.post("/api/triage", triageRateLimit, async (req, res) => {
       return res.status(400).json({ error: "triage_failed" });
     }
 
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) {
-      console.error("Missing ANTHROPIC_API_KEY");
-      return res.json({
-        answer: getFallbackTriageAdvice(bodyPart, locale, symptoms),
-        source: "fallback",
-      });
-    }
+    const bodyPartLabel = BODY_PART_LABELS[bodyPart];
+    const questionParts = [`Беспокоит область: ${bodyPartLabel}.`];
+    if (pain !== null) questionParts.push(`Уровень боли: ${pain}/10.`);
+    const trimmedSymptoms = String(symptoms).trim();
+    if (trimmedSymptoms) questionParts.push(`Симптомы: ${trimmedSymptoms}.`);
+    questionParts.push("Что это может быть и какие препараты помогут?");
+    const question = questionParts.join(" ");
 
-    const localeInstruction = getLocaleInstruction(locale);
-    const selectedBodyPart = BODY_PART_LABELS[bodyPart];
+    const patientId = String(patient_id || "guest").trim();
+    const result = await askMedicalAssistant({ patientId, question });
 
-    const prompt = buildTriagePrompt({
-      localeInstruction,
-      locale,
-      selectedBodyPart,
-      symptoms,
-      painLevel: pain,
-    });
-
-    let answer = "";
-    // Route provider by key prefix
-    if (apiKey.startsWith("AIza")) {
-      answer = await askGemini(prompt, apiKey);
-    } else if (apiKey.startsWith("gsk_")) {
-      answer = await askGroq(prompt, apiKey);
-    } else {
-      // Otherwise assume Anthropic key format (sk-ant-...).
-      answer = await askClaude(prompt);
-    }
-
-    if (!answer) {
-      return res.json({
-        answer: getFallbackTriageAdvice(bodyPart, locale, symptoms),
-        source: "fallback",
-      });
-    }
-
-    return res.json({ answer, source: "ai" });
+    return res.json({ answer: result.answer, source: "rag", sources: result.sources });
   } catch (e) {
     console.error(
       "triage_error:",
@@ -697,6 +636,9 @@ try {
 app.use((err, req, res, next) => {
   console.error("unhandled_error:", err?.message || err);
   if (res.headersSent) return next(err);
+  if (err?.statusCode) {
+    return res.status(err.statusCode).json({ error: err.message || "request_failed" });
+  }
   return res.status(500).json({ error: "internal_error" });
 });
 

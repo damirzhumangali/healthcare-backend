@@ -1,4 +1,8 @@
+const { randomUUID } = require("crypto");
 const { db } = require("../db/sqlite");
+const bus = require("./eventBus");
+
+const APPOINTMENT_EVENT = "appointment:changed";
 
 const STATUSES = new Set(["pending", "active", "done"]);
 
@@ -10,6 +14,11 @@ function isValidStatus(status) {
   return STATUSES.has(status);
 }
 
+function buildJitsiUrl() {
+  const slug = randomUUID().replace(/-/g, "").slice(0, 14);
+  return `https://meet.jit.si/healthassist-${slug}`;
+}
+
 function createAppointment(input) {
   const appointment = {
     id: globalThis.crypto.randomUUID(),
@@ -19,6 +28,7 @@ function createAppointment(input) {
     time: String(input.time || "").trim(),
     reason: input.reason == null ? "" : String(input.reason).trim(),
     status: input.status || "pending",
+    meeting_url: input.meeting_url || buildJitsiUrl(),
     created_at: nowIso(),
   };
 
@@ -35,9 +45,10 @@ function createAppointment(input) {
   }
 
   db.prepare(
-    "INSERT INTO appointments(id, patient_id, doctor_id, date, time, reason, status, created_at) VALUES (@id, @patient_id, @doctor_id, @date, @time, @reason, @status, @created_at)"
+    "INSERT INTO appointments(id, patient_id, doctor_id, date, time, reason, status, meeting_url, created_at) VALUES (@id, @patient_id, @doctor_id, @date, @time, @reason, @status, @meeting_url, @created_at)"
   ).run(appointment);
 
+  bus.emit(APPOINTMENT_EVENT, { type: "new_appointment", item: appointment });
   return appointment;
 }
 

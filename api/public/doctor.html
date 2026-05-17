@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Портал врача — HealthAssist</title>
+    <style>
+      :root {
+        --bg: #f0f4f8; --panel: #fff; --line: #e2e8f0;
+        --text: #1a202c; --muted: #718096;
+        --accent: #2b6cb0; --accent-light: #ebf8ff; --accent-hover: #2c5282;
+        --danger: #c53030; --green: #276749; --green-bg: #f0fff4; --green-border: #9ae6b4;
+        --shadow: 0 4px 24px rgba(0,0,0,.08); --radius: 12px;
+      }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body { min-height: 100vh; font-family: "Segoe UI", system-ui, sans-serif; background: var(--bg); color: var(--text); }
+
+      /* Login */
+      #login-screen { display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:100vh; padding:24px; }
+      .login-card { background:var(--panel); border-radius:20px; box-shadow:var(--shadow); padding:48px 40px; max-width:420px; width:100%; text-align:center; }
+      .login-logo { width:64px; height:64px; background:var(--accent); border-radius:16px; margin:0 auto 24px; display:flex; align-items:center; justify-content:center; }
+      .login-logo svg { width:36px; height:36px; fill:#fff; }
+      .login-card h1 { font-size:22px; font-weight:700; margin-bottom:8px; }
+      .login-card p { color:var(--muted); font-size:14px; margin-bottom:32px; line-height:1.5; }
+      .btn-google { display:flex; align-items:center; justify-content:center; gap:12px; width:100%; padding:13px 20px; border:2px solid var(--line); border-radius:10px; background:#fff; font-size:15px; font-weight:600; color:var(--text); cursor:pointer; transition:border-color .15s,box-shadow .15s; }
+      .btn-google:hover { border-color:#4285f4; box-shadow:0 0 0 3px rgba(66,133,244,.15); }
+      .btn-google svg { width:20px; height:20px; flex-shrink:0; }
+      .login-error { margin-top:16px; padding:10px 14px; background:#fff5f5; border:1px solid #fed7d7; border-radius:8px; color:var(--danger); font-size:13px; display:none; }
+
+      /* Shell */
+      #dashboard { display:none; }
+      header { background:var(--panel); border-bottom:1px solid var(--line); padding:0 24px; height:60px; display:flex; align-items:center; justify-content:space-between; position:sticky; top:0; z-index:20; }
+      .brand { display:flex; align-items:center; gap:10px; font-weight:700; font-size:16px; color:var(--accent); }
+      .brand svg { width:24px; height:24px; fill:var(--accent); }
+      .hdr-right { display:flex; align-items:center; gap:12px; }
+      .avatar { width:36px; height:36px; border-radius:50%; object-fit:cover; border:2px solid var(--line); }
+      .avatar-ph { width:36px; height:36px; border-radius:50%; background:var(--accent); color:#fff; font-size:14px; font-weight:700; display:flex; align-items:center; justify-content:center; }
+      .uname { font-size:14px; font-weight:600; }
+      .btn-sm { padding:6px 14px; border:1px solid var(--line); border-radius:8px; background:#fff; font-size:13px; cursor:pointer; color:var(--muted); transition:color .15s,border-color .15s; }
+      .btn-sm:hover { color:var(--danger); border-color:var(--danger); }
+
+      main { max-width:960px; margin:28px auto; padding:0 24px; display:flex; flex-direction:column; gap:28px; }
+
+      /* Tabs */
+      .tabs { display:flex; gap:4px; border-bottom:2px solid var(--line); }
+      .tab { padding:10px 18px; font-size:14px; font-weight:600; color:var(--muted); cursor:pointer; border-bottom:2px solid transparent; margin-bottom:-2px; transition:color .15s,border-color .15s; }
+      .tab.active { color:var(--accent); border-color:var(--accent); }
+      .tab-pane { display:none; padding-top:20px; }
+      .tab-pane.active { display:block; }
+
+      /* Section header */
+      .sec-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; }
+      .sec-title { font-size:16px; font-weight:700; }
+      .badge { background:var(--accent-light); color:var(--accent); font-size:12px; font-weight:700; padding:2px 9px; border-radius:20px; }
+
+      /* Appointment cards */
+      .appt-card { background:var(--panel); border-radius:var(--radius); border:1px solid var(--line); padding:20px; margin-bottom:10px; }
+      .appt-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom:10px; }
+      .appt-patient { font-size:15px; font-weight:700; }
+      .appt-time { font-size:13px; font-weight:700; color:var(--accent); white-space:nowrap; flex-shrink:0; }
+      .appt-meta { font-size:13px; color:var(--muted); display:flex; flex-wrap:wrap; gap:10px; margin-bottom:4px; }
+      .s-active { display:inline-block; background:#bee3f8; color:#2a4365; font-size:11px; font-weight:700; padding:2px 9px; border-radius:20px; }
+      .s-pending { display:inline-block; background:#fefcbf; color:#744210; font-size:11px; font-weight:700; padding:2px 9px; border-radius:20px; }
+      .s-done { display:inline-block; background:#e2e8f0; color:#4a5568; font-size:11px; font-weight:700; padding:2px 9px; border-radius:20px; }
+
+      /* Meeting box */
+      .meeting-box { background:var(--green-bg); border:1.5px solid var(--green-border); border-radius:10px; padding:14px 16px; display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; margin-top:12px; }
+      .meeting-label { font-size:13px; color:var(--green); font-weight:600; }
+      .btn-join { display:inline-flex; align-items:center; gap:7px; padding:9px 18px; background:#276749; color:#fff; border-radius:8px; font-size:14px; font-weight:700; text-decoration:none; transition:background .15s; flex-shrink:0; }
+      .btn-join:hover { background:#22543d; }
+      .btn-join svg { width:15px; height:15px; fill:#fff; }
+
+      /* Doctor list */
+      .doctors-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:14px; }
+      .doctor-card { background:var(--panel); border-radius:var(--radius); border:1px solid var(--line); padding:18px; }
+      .dc-name { font-size:15px; font-weight:700; margin-bottom:4px; }
+      .dc-spec { font-size:13px; color:var(--accent); font-weight:600; }
+
+      .empty { padding:36px; text-align:center; color:var(--muted); font-size:14px; }
+    </style>
+  </head>
+  <body>
+
+    <!-- Login -->
+    <div id="login-screen">
+      <div class="login-card">
+        <div class="login-logo">
+          <svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 100 20A10 10 0 0012 2zm1 14.93V15a1 1 0 00-2 0v1.93A8.001 8.001 0 014.07 11H6a1 1 0 000-2H4.07A8.001 8.001 0 0111 4.07V6a1 1 0 002 0V4.07A8.001 8.001 0 0119.93 11H18a1 1 0 000 2h1.93A8.001 8.001 0 0113 16.93z"/></svg>
+        </div>
+        <h1>Портал врача</h1>
+        <p>Войдите через Google чтобы увидеть расписание и ссылки на консультации</p>
+        <button class="btn-google" id="btn-login">
+          <svg viewBox="0 0 48 48"><path fill="#4285F4" d="M45.12 24.5c0-1.56-.14-3.06-.4-4.5H24v8.51h11.84c-.51 2.75-2.06 5.08-4.39 6.64v5.52h7.11c4.16-3.83 6.56-9.47 6.56-16.17z"/><path fill="#34A853" d="M24 46c5.94 0 10.92-1.97 14.56-5.33l-7.11-5.52c-1.97 1.32-4.49 2.1-7.45 2.1-5.73 0-10.58-3.87-12.32-9.07H4.34v5.7C7.96 41.07 15.4 46 24 46z"/><path fill="#FBBC05" d="M11.68 28.18A13.86 13.86 0 0110.8 24c0-1.45.25-2.86.88-4.18v-5.7H4.34A21.98 21.98 0 002 24c0 3.55.85 6.91 2.34 9.88l7.34-5.7z"/><path fill="#EA4335" d="M24 10.75c3.23 0 6.13 1.11 8.41 3.29l6.31-6.31C34.91 4.18 29.93 2 24 2 15.4 2 7.96 6.93 4.34 14.12l7.34 5.7c1.74-5.2 6.59-9.07 12.32-9.07z"/></svg>
+          Войти через Google
+        </button>
+        <div class="login-error" id="login-error"></div>
+      </div>
+    </div>
+
+    <!-- Dashboard -->
+    <div id="dashboard">
+      <header>
+        <div class="brand">
+          <svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 100 20A10 10 0 0012 2zm1 14.93V15a1 1 0 00-2 0v1.93A8.001 8.001 0 014.07 11H6a1 1 0 000-2H4.07A8.001 8.001 0 0111 4.07V6a1 1 0 002 0V4.07A8.001 8.001 0 0119.93 11H18a1 1 0 000 2h1.93A8.001 8.001 0 0113 16.93z"/></svg>
+          HealthAssist
+        </div>
+        <div class="hdr-right">
+          <img id="hdr-avatar" class="avatar" style="display:none" alt="" />
+          <div id="hdr-avatar-ph" class="avatar-ph" style="display:none"></div>
+          <span class="uname" id="hdr-name"></span>
+          <button class="btn-sm" id="btn-logout">Выйти</button>
+        </div>
+      </header>
+
+      <main>
+        <div class="tabs">
+          <div class="tab active" data-tab="schedule">Моё расписание</div>
+          <div class="tab" data-tab="all-doctors">Все врачи</div>
+        </div>
+
+        <!-- Schedule -->
+        <div class="tab-pane active" id="tab-schedule">
+          <div class="sec-head">
+            <span class="sec-title">Предстоящие консультации</span>
+            <span class="badge" id="appt-count">…</span>
+          </div>
+          <div id="appt-list"><div class="empty">Загрузка…</div></div>
+        </div>
+
+        <!-- All doctors -->
+        <div class="tab-pane" id="tab-all-doctors">
+          <div class="sec-head">
+            <span class="sec-title">Врачи клиники</span>
+            <span class="badge" id="doctors-count">…</span>
+          </div>
+          <div id="doctors-list" class="doctors-grid"><div class="empty">Загрузка…</div></div>
+        </div>
+      </main>
+    </div>
+
+    <script>
+      const API = "";
+
+      function esc(s) { return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+      function fmt(iso) {
+        if (!iso) return ""; const d = new Date(iso); if (isNaN(d)) return iso;
+        return d.toLocaleString("ru-RU", { timeZone:"Asia/Almaty", day:"2-digit", month:"2-digit", year:"numeric", hour:"2-digit", minute:"2-digit" });
+      }
+      function fmtDate(s) { if (!s) return ""; const [y,m,d]=s.split("-"); return `${d}.${m}.${y}`; }
+
+      async function getMe() {
+        try { const r = await fetch(`${API}/api/me`,{credentials:"include"}); if(!r.ok)return null; return (await r.json()).user||null; } catch{return null;}
+      }
+
+      // Tabs
+      document.querySelectorAll(".tab").forEach(tab => {
+        tab.addEventListener("click", () => {
+          document.querySelectorAll(".tab").forEach(t=>t.classList.remove("active"));
+          document.querySelectorAll(".tab-pane").forEach(p=>p.classList.remove("active"));
+          tab.classList.add("active");
+          document.getElementById("tab-"+tab.dataset.tab).classList.add("active");
+        });
+      });
+
+      // Appointments (doctor's schedule)
+      async function loadSchedule() {
+        try {
+          const r = await fetch(`${API}/api/appointments/my-schedule`, {credentials:"include"});
+          if (!r.ok) throw new Error();
+          const { items } = await r.json();
+          renderSchedule(items||[]);
+        } catch {
+          document.getElementById("appt-list").innerHTML = '<div class="empty">Не удалось загрузить расписание</div>';
+        }
+      }
+
+      const STATUS_LABELS = {pending:"Ожидает", active:"Подтверждена", done:"Завершена"};
+      const STATUS_CLASS  = {pending:"s-pending", active:"s-active", done:"s-done"};
+
+      function renderSchedule(items) {
+        document.getElementById("appt-count").textContent = items.length;
+        const el = document.getElementById("appt-list");
+        if (!items.length) { el.innerHTML = '<div class="empty">Нет записей на приём</div>'; return; }
+
+        // Sort: upcoming first
+        items.sort((a,b) => (a.date+a.time).localeCompare(b.date+b.time));
+
+        el.innerHTML = items.map(a => {
+          const statusLabel = STATUS_LABELS[a.status]||a.status;
+          const statusClass = STATUS_CLASS[a.status]||"s-pending";
+          const when = `${fmtDate(a.date)} в ${a.time}`;
+
+          const meeting = a.meeting_url ? `
+            <div class="meeting-box">
+              <div class="meeting-label">🎥 Ссылка на онлайн-консультацию • ${esc(when)}</div>
+              <a class="btn-join" href="${esc(a.meeting_url)}" target="_blank" rel="noopener">
+                <svg viewBox="0 0 24 24"><path d="M17 10.5V7a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h12a1 1 0 001-1v-3.5l4 4v-11l-4 4z"/></svg>
+                Подключиться
+              </a>
+            </div>` : "";
+
+          return `
+            <div class="appt-card">
+              <div class="appt-head">
+                <div class="appt-patient">👤 ${esc(a.patient_name || "Пациент")}</div>
+                <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+                  <span class="${statusClass}">${statusLabel}</span>
+                  <span class="appt-time">📅 ${esc(when)}</span>
+                </div>
+              </div>
+              ${a.reason ? `<div class="appt-meta">📋 ${esc(a.reason)}</div>` : ""}
+              ${meeting}
+            </div>`;
+        }).join("");
+      }
+
+      // Doctors list
+      async function loadDoctors() {
+        try {
+          const r = await fetch(`${API}/api/doctors`,{credentials:"include"});
+          if(!r.ok) return [];
+          const d = await r.json();
+          return d.doctors||d.items||[];
+        } catch{return[];}
+      }
+
+      function renderDoctors(doctors) {
+        document.getElementById("doctors-count").textContent = doctors.length;
+        const el = document.getElementById("doctors-list");
+        if (!doctors.length) { el.innerHTML = '<div class="empty">Нет врачей</div>'; return; }
+        el.innerHTML = doctors.map(d => `
+          <div class="doctor-card">
+            <div class="dc-name">${esc(d.name)}</div>
+            <div class="dc-spec">${esc(d.specialty||"")}</div>
+          </div>`).join("");
+      }
+
+      // SSE: get notified when new appointment assigned
+      function connectStream() {
+        const es = new EventSource(`${API}/api/appointments/stream`, {withCredentials:true});
+        es.onmessage = e => {
+          try {
+            const data = JSON.parse(e.data);
+            if (data.type === "new_appointment") {
+              loadSchedule();
+              showToast("📋 Назначена новая консультация!");
+            }
+          } catch {}
+        };
+        es.onerror = () => { es.close(); setTimeout(connectStream, 5000); };
+      }
+
+      function showToast(text) {
+        let n = document.getElementById("doctor-toast");
+        if (!n) {
+          n = document.createElement("div"); n.id = "doctor-toast";
+          n.style.cssText = "position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#2b6cb0;color:#fff;padding:12px 22px;border-radius:10px;font-size:14px;font-weight:600;box-shadow:0 4px 20px rgba(0,0,0,.2);z-index:100;transition:opacity .4s;";
+          document.body.appendChild(n);
+        }
+        n.textContent = text; n.style.opacity = "1";
+        clearTimeout(n._t); n._t = setTimeout(()=>{n.style.opacity="0";}, 5000);
+      }
+
+      // Auth
+      document.getElementById("btn-login").addEventListener("click", async () => {
+        try { const r=await fetch(`${API}/doctor/auth/url`); const {url}=await r.json(); location.href=url; }
+        catch { document.getElementById("login-error").textContent="Ошибка входа"; document.getElementById("login-error").style.display="block"; }
+      });
+      document.getElementById("btn-logout").addEventListener("click", async () => {
+        await fetch(`${API}/auth/logout`,{method:"POST",credentials:"include"}).catch(()=>{});
+        location.reload();
+      });
+
+      // Init
+      (async () => {
+        const p = new URLSearchParams(location.search);
+        if (p.get("auth_error")) {
+          document.getElementById("login-error").textContent = "Ошибка входа: "+decodeURIComponent(p.get("auth_error"));
+          document.getElementById("login-error").style.display = "block";
+        }
+        const user = await getMe();
+        if (!user) return;
+
+        document.getElementById("login-screen").style.display = "none";
+        document.getElementById("dashboard").style.display = "block";
+        document.getElementById("hdr-name").textContent = user.name||user.email||"";
+        if (user.picture) { const img=document.getElementById("hdr-avatar"); img.src=user.picture; img.style.display="block"; }
+        else { const ph=document.getElementById("hdr-avatar-ph"); ph.textContent=(user.name||user.email||"?")[0].toUpperCase(); ph.style.display="flex"; }
+
+        loadSchedule();
+        loadDoctors().then(renderDoctors);
+        connectStream();
+      })();
+    </script>
+  </body>
+</html>

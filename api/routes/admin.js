@@ -187,6 +187,12 @@ router.post("/telegram-consultations/:id/accept", async (req, res, next) => {
       if (doctorEmail) {
         sendMeetingLink({ ...sharedArgs, toEmail: doctorEmail, toName: sharedArgs.doctorName, role: "doctor" }).catch(() => {});
       }
+
+      // Always notify admin account (EMAIL_USER) with full patient data
+      const adminEmail = process.env.EMAIL_USER;
+      if (adminEmail && adminEmail !== doctorEmail) {
+        sendMeetingLink({ ...sharedArgs, toEmail: adminEmail, toName: "Администратор", role: "doctor" }).catch(() => {});
+      }
     }
 
     return res.status(200).json({

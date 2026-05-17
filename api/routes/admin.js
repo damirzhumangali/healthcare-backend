@@ -7,6 +7,7 @@ const telegramConsultationService = require("../services/telegramConsultationSer
 const appointmentService = require("../services/appointmentService");
 const userService = require("../services/userService");
 const bus = require("../services/eventBus");
+const { sendMeetingLink } = require("../services/emailService");
 
 const router = express.Router();
 
@@ -157,6 +158,31 @@ router.post("/telegram-consultations/:id/accept", async (req, res, next) => {
         });
       } catch (apptErr) {
         console.error("appointment_create_failed:", apptErr?.message || apptErr);
+      }
+    }
+
+    // Send email notifications to patient and doctor
+    if (item.meeting_url) {
+      const doctor = doctorId ? doctorService.listDoctors({ includeInactive: true }).find(d => d.id === doctorId) : null;
+      const patientUser = item.patient_id ? userService.getUserById(item.patient_id) : null;
+
+      const sharedArgs = {
+        meetingUrl: item.meeting_url,
+        meetingAt: item.meeting_at,
+        doctorName: doctor?.name || "Врач",
+        patientName: item.patient_name || patientUser?.name || patientUser?.email || "Пациент",
+      };
+
+      // Email to patient
+      const patientEmail = patientUser?.email;
+      if (patientEmail) {
+        sendMeetingLink({ ...sharedArgs, toEmail: patientEmail, toName: sharedArgs.patientName, role: "patient" }).catch(() => {});
+      }
+
+      // Email to doctor
+      const doctorEmail = doctor?.email;
+      if (doctorEmail) {
+        sendMeetingLink({ ...sharedArgs, toEmail: doctorEmail, toName: sharedArgs.doctorName, role: "doctor" }).catch(() => {});
       }
     }
 

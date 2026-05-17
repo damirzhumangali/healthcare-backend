@@ -171,6 +171,9 @@ router.post("/telegram-consultations/:id/accept", async (req, res, next) => {
         meetingAt: item.meeting_at,
         doctorName: doctor?.name || "Врач",
         patientName: item.patient_name || patientUser?.name || patientUser?.email || "Пациент",
+        problem: item.problem || null,
+        days: item.days || null,
+        temperature: item.temperature || null,
       };
 
       // Email to patient

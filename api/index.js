@@ -10,8 +10,8 @@ dotenv.config();
 const path = require("path");
 const jwt = require("jsonwebtoken");
 const { OAuth2Client } = require("google-auth-library");
-const { askMedicalAssistant } = require("./services/aiRagService");
 const { requireJwt } = require("./middleware/auth");
+const { syncDoctorDirectory } = require("./services/doctorDirectoryService");
 const userService = require("./services/userService");
 const { db } = require("./db/sqlite");
 let ticketsRoutes = null;
@@ -383,6 +383,13 @@ if (deviceRoutes) app.use("/api/device", deviceRoutes);
 if (servoControlRoutes) app.use("/api/servo-control", servoControlRoutes);
 if (aiRoutes) app.use("/api/ai", aiRoutes);
 
+try {
+  const doctorSync = syncDoctorDirectory();
+  console.log("doctor_directory_sync:", JSON.stringify(doctorSync));
+} catch (error) {
+  console.error("doctor_directory_sync_error:", error?.message || error);
+}
+
 app.get("/ai-chat", (req, res) => {
   res.set(
     "Content-Security-Policy",
@@ -602,6 +609,7 @@ app.post("/api/triage", triageRateLimit, async (req, res) => {
     const question = questionParts.join(" ");
 
     const patientId = String(patient_id || "guest").trim();
+    const { askMedicalAssistant } = require("./services/aiRagService");
     const result = await askMedicalAssistant({ patientId, question });
 
     return res.json({ answer: result.answer, source: "rag", sources: result.sources });

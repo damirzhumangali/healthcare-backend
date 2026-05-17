@@ -2,6 +2,7 @@ const express = require("express");
 const { requireJwt } = require("../middleware/auth");
 const { requireAdmin } = require("../middleware/roles");
 const doctorService = require("../services/doctorService");
+const { syncDoctorDirectory } = require("../services/doctorDirectoryService");
 
 const router = express.Router();
 
@@ -28,6 +29,15 @@ router.post("/", requireJwt, requireAdmin, (req, res, next) => {
   try {
     const doctor = doctorService.createDoctor(req.body || {});
     return res.status(201).json({ doctor, item: doctor });
+  } catch (e) {
+    return next(e);
+  }
+});
+
+router.post("/sync-directory", requireJwt, requireAdmin, (req, res, next) => {
+  try {
+    const result = syncDoctorDirectory();
+    return res.json({ ok: true, ...result });
   } catch (e) {
     return next(e);
   }

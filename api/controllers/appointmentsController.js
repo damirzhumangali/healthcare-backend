@@ -3,9 +3,37 @@ const doctorService = require("../services/doctorService");
 
 function handleServiceError(error, next, res) {
   if (error?.statusCode) {
-    return res.status(error.statusCode).json({ error: error.message });
+    return res.status(error.statusCode).json({
+      error: error.message,
+      ...(error.details ? { details: error.details } : {}),
+    });
   }
   return next(error);
+}
+
+function normalizeText(value) {
+  const normalized = String(value || "").trim();
+  return normalized || "";
+}
+
+function resolveAuthUserId(user) {
+  if (!user) return "";
+
+  return (
+    normalizeText(user.id) ||
+    normalizeText(user.user_id) ||
+    normalizeText(user.userId) ||
+    normalizeText(user.sub) ||
+    normalizeText(user.email)
+  );
+}
+
+function resolvePatientId(req) {
+  return (
+    normalizeText(req.body?.patient_id) ||
+    normalizeText(req.body?.patientId) ||
+    resolveAuthUserId(req.user)
+  );
 }
 
 function createAppointment(req, res, next) {
@@ -13,10 +41,23 @@ function createAppointment(req, res, next) {
     const appointment = appointmentService.createAppointment({
       ...req.body,
       doctor_id: req.body?.doctor_id || req.body?.doctorId,
-      patient_id: req.body?.patient_id || req.user.id,
+      patient_id: resolvePatientId(req),
     });
     return res.status(201).json({ appointment, item: appointment });
   } catch (e) {
+    if (e?.statusCode === 400) {
+      console.warn(
+        "appointment_create_rejected:",
+        JSON.stringify({
+          error: e.message,
+          details: e.details || null,
+          hasResolvedPatientId: Boolean(resolvePatientId(req)),
+          hasDate: Boolean(normalizeText(req.body?.date)),
+          hasTime: Boolean(normalizeText(req.body?.time)),
+          userKeys: Object.keys(req.user || {}),
+        })
+      );
+    }
     return handleServiceError(e, next, res);
   }
 }
@@ -33,8 +74,17 @@ function listAppointments(req, res, next) {
         .includes(String(req.user?.email || "").toLowerCase());
 
     const doctor = req.user?.role === "doctor" ? doctorService.getDoctorForUser(req.user) : null;
-    const doctorId = req.query?.doctor_id || req.query?.doctorId || (canSeeAll ? null : doctor?.id || null);
-    const patientId = req.query?.patient_id || req.query?.patientId || (canSeeAll || doctor ? null : req.user.id);
+    const sharedDoctorPortal =
+      req.user?.role === "doctor" && doctorService.shouldDoctorSeeAllAppointments(req.user);
+    const authUserId = resolveAuthUserId(req.user);
+    const doctorId =
+      req.query?.doctor_id ||
+      req.query?.doctorId ||
+      (canSeeAll || sharedDoctorPortal ? null : doctor?.id || null);
+    const patientId =
+      req.query?.patient_id ||
+      req.query?.patientId ||
+      (canSeeAll || doctor || sharedDoctorPortal ? null : authUserId || null);
 
     const appointments = appointmentService.listAppointments({
       doctor_id: doctorId,

@@ -5,3 +5,10 @@ data/
 .vercel
 .env*.local
 .env.temp
+
+# Keep JS seed/catalog files under api/data in git, but ignore runtime SQLite artifacts.
+!api/data/
+!api/data/*.js
+api/data/*.sqlite
+api/data/*.sqlite-shm
+api/data/*.sqlite-wal

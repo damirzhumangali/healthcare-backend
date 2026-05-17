@@ -19,22 +19,56 @@ function buildJitsiUrl() {
   return `https://meet.jit.si/healthassist-${slug}`;
 }
 
+function normalizeOptionalText(value) {
+  const normalized = String(value || "").trim();
+  return normalized || null;
+}
+
+function normalizeConsultationMode(value) {
+  const normalized = String(value || "").trim();
+  if (normalized === "online_home" || normalized === "online_ward" || normalized === "in_person") {
+    return normalized;
+  }
+  if (normalized === "online") return "online_home";
+  if (normalized === "ward") return "online_ward";
+  return "in_person";
+}
+
 function createAppointment(input) {
+  const consultationMode = normalizeConsultationMode(input.consultation_mode || input.consultationMode);
+  const wantsOnline = consultationMode !== "in_person" || Boolean(input.wants_online || input.wantsOnline);
+  const doctorId = String(input.doctor_id || input.doctorId || "").trim() || "pending";
+  const time = String(input.time || "").trim() || "00:00";
+  const shouldHaveMeetingLink = consultationMode === "online_home" && doctorId !== "pending";
   const appointment = {
     id: globalThis.crypto.randomUUID(),
     patient_id: String(input.patient_id || "").trim(),
-    doctor_id: String(input.doctor_id || "").trim(),
+    doctor_id: doctorId,
     date: String(input.date || "").trim(),
-    time: String(input.time || "").trim(),
+    time,
     reason: input.reason == null ? "" : String(input.reason).trim(),
+    specialty_request: normalizeOptionalText(input.specialty_request || input.specialtyRequest),
+    wants_online: wantsOnline ? 1 : 0,
+    consultation_mode: consultationMode,
+    ward_label: normalizeOptionalText(input.ward_label || input.wardLabel),
+    bed_label: normalizeOptionalText(input.bed_label || input.bedLabel),
+    room_label: normalizeOptionalText(input.room_label || input.roomLabel),
     status: input.status || "pending",
-    meeting_url: input.meeting_url || buildJitsiUrl(),
+    meeting_url: normalizeOptionalText(input.meeting_url || input.meetingUrl) || (shouldHaveMeetingLink ? buildJitsiUrl() : null),
+    meeting_at: normalizeOptionalText(input.meeting_at || input.meetingAt),
+    meeting_notified: input.meeting_notified || input.meetingNotified ? 1 : 0,
     created_at: nowIso(),
   };
 
-  if (!appointment.patient_id || !appointment.doctor_id || !appointment.date || !appointment.time) {
+  const missingFields = [];
+  if (!appointment.patient_id) missingFields.push("patient_id");
+  if (!appointment.date) missingFields.push("date");
+  if (!appointment.time) missingFields.push("time");
+
+  if (missingFields.length > 0) {
     const error = new Error("missing_required_fields");
     error.statusCode = 400;
+    error.details = { missingFields };
     throw error;
   }
 
@@ -45,7 +79,13 @@ function createAppointment(input) {
   }
 
   db.prepare(
-    "INSERT INTO appointments(id, patient_id, doctor_id, date, time, reason, status, meeting_url, created_at) VALUES (@id, @patient_id, @doctor_id, @date, @time, @reason, @status, @meeting_url, @created_at)"
+    `INSERT INTO appointments(
+      id, patient_id, doctor_id, date, time, reason, specialty_request, wants_online, consultation_mode,
+      ward_label, bed_label, room_label, status, meeting_url, meeting_at, meeting_notified, created_at
+    ) VALUES (
+      @id, @patient_id, @doctor_id, @date, @time, @reason, @specialty_request, @wants_online, @consultation_mode,
+      @ward_label, @bed_label, @room_label, @status, @meeting_url, @meeting_at, @meeting_notified, @created_at
+    )`
   ).run(appointment);
 
   bus.emit(APPOINTMENT_EVENT, { type: "new_appointment", item: appointment });
@@ -128,7 +168,10 @@ function updateAppointmentStatus(id, status) {
   return db.prepare("SELECT * FROM appointments WHERE id = ?").get(appointmentId);
 }
 
-function assignAppointment(id, { doctor_id, time, meeting_url } = {}) {
+function assignAppointment(
+  id,
+  { doctor_id, date, time, meeting_url, meeting_at, meeting_notified, room_label } = {},
+) {
   const appointmentId = String(id || "").trim();
   if (!appointmentId) {
     const error = new Error("missing_appointment_id");
@@ -141,14 +184,41 @@ function assignAppointment(id, { doctor_id, time, meeting_url } = {}) {
 
   const next = {
     ...existing,
-    doctor_id: doctor_id !== undefined ? String(doctor_id || "").trim() : existing.doctor_id,
+    doctor_id: doctor_id !== undefined ? String(doctor_id || "").trim() || "pending" : existing.doctor_id,
+    date: date !== undefined ? String(date || "").trim() || existing.date : existing.date,
     time: time !== undefined ? String(time || "").trim() : existing.time,
-    meeting_url: meeting_url !== undefined ? String(meeting_url || "").trim() || existing.meeting_url : existing.meeting_url,
+    room_label: room_label !== undefined ? normalizeOptionalText(room_label) : existing.room_label,
+    meeting_url:
+      meeting_url !== undefined
+        ? String(meeting_url || "").trim() || existing.meeting_url
+        : existing.meeting_url || (normalizeConsultationMode(existing.consultation_mode) === "online_home" && String(doctor_id || "").trim() ? buildJitsiUrl() : null),
+    meeting_at: meeting_at !== undefined ? normalizeOptionalText(meeting_at) : existing.meeting_at,
+    meeting_notified:
+      meeting_notified !== undefined
+        ? (meeting_notified ? 1 : 0)
+        : existing.meeting_notified || 0,
   };
 
   db.prepare(
-    "UPDATE appointments SET doctor_id = @doctor_id, time = @time, meeting_url = @meeting_url WHERE id = @id"
-  ).run({ doctor_id: next.doctor_id, time: next.time, meeting_url: next.meeting_url, id: appointmentId });
+    `UPDATE appointments
+     SET doctor_id = @doctor_id,
+         date = @date,
+         time = @time,
+         room_label = @room_label,
+         meeting_url = @meeting_url,
+         meeting_at = @meeting_at,
+         meeting_notified = @meeting_notified
+     WHERE id = @id`
+  ).run({
+    doctor_id: next.doctor_id,
+    date: next.date,
+    time: next.time,
+    room_label: next.room_label,
+    meeting_url: next.meeting_url,
+    meeting_at: next.meeting_at,
+    meeting_notified: next.meeting_notified,
+    id: appointmentId,
+  });
 
   const updated = db.prepare("SELECT * FROM appointments WHERE id = ?").get(appointmentId);
   bus.emit(APPOINTMENT_EVENT, { type: "appointment_assigned", item: updated });

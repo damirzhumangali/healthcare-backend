@@ -9,6 +9,12 @@ function normalizeEmail(email) {
   return value || null;
 }
 
+function linkDoctorUser(doctorId, userId) {
+  const ts = nowIso();
+  db.prepare("UPDATE doctors SET user_id = ?, updated_at = ? WHERE id = ?").run(userId, ts, doctorId);
+  db.prepare("UPDATE users SET role = 'doctor', updated_at = ? WHERE id = ? AND role != 'admin'").run(ts, userId);
+}
+
 function publicDoctor(row) {
   if (!row) return null;
   return {
@@ -116,7 +122,29 @@ function getDoctorForUser(user) {
   if (byUser) return publicDoctor(byUser);
   const email = normalizeEmail(user.email);
   if (!email) return null;
-  return publicDoctor(db.prepare("SELECT * FROM doctors WHERE lower(email) = ? AND active = 1").get(email));
+  const byEmail = db.prepare("SELECT * FROM doctors WHERE lower(email) = ? AND active = 1").get(email);
+  if (!byEmail) return null;
+
+  if (byEmail.user_id !== user.id) {
+    linkDoctorUser(byEmail.id, user.id);
+    return publicDoctor(db.prepare("SELECT * FROM doctors WHERE id = ?").get(byEmail.id));
+  }
+
+  return publicDoctor(byEmail);
+}
+
+function shouldDoctorSeeAllAppointments(user) {
+  const doctor = getDoctorForUser(user);
+  if (!doctor) return false;
+
+  const mappedCount = db
+    .prepare(
+      "SELECT COUNT(*) AS value FROM doctors WHERE active = 1 AND ((email IS NOT NULL AND trim(email) != '') OR user_id IS NOT NULL)"
+    )
+    .get()
+    .value;
+
+  return Number(mappedCount || 0) <= 1;
 }
 
 module.exports = {
@@ -124,4 +152,5 @@ module.exports = {
   createDoctor,
   updateDoctor,
   getDoctorForUser,
+  shouldDoctorSeeAllAppointments,
 };

@@ -1,0 +1,21 @@
+module.exports = [
+  { id: "doctor-001", name: "Айжан Нурбекова", specialty: "Терапевт" },
+  { id: "doctor-002", name: "Ерлан Садыков", specialty: "Кардиолог" },
+  { id: "doctor-003", name: "Мария Ким", specialty: "Невролог" },
+  { id: "doctor-004", name: "Алибек Жумабеков", specialty: "Хирург" },
+  { id: "doctor-005", name: "Гүлнар Байжанова", specialty: "Педиатр" },
+  { id: "doctor-006", name: "Серік Оспанов", specialty: "ЛОР" },
+  { id: "doctor-007", name: "Наталья Соколова", specialty: "Офтальмолог" },
+  { id: "doctor-008", name: "Дамир Усенов", specialty: "Стоматолог" },
+  { id: "doctor-009", name: "Айгүл Нурланова", specialty: "Гинеколог" },
+  { id: "doctor-010", name: "Руслан Ахметов", specialty: "Уролог" },
+  { id: "doctor-011", name: "Венера Исмаилова", specialty: "Дерматолог" },
+  { id: "doctor-012", name: "Болат Серіков", specialty: "Эндокринолог" },
+  { id: "doctor-013", name: "Ирина Власова", specialty: "Ортопед" },
+  {
+    id: "doctor-alikhan-baktybaev",
+    email: "alixan.baktybaev@gmail.com",
+    name: "Alikhan Baktybaev",
+    specialty: "Терапевт",
+  },
+];

@@ -12,6 +12,19 @@ router.post("/", requireJwt, controller.createAppointment);
 router.get("/", requireJwt, controller.listAppointments);
 router.patch("/:id/status", requireJwt, controller.updateAppointmentStatus);
 
+// Admin/doctor: assign a doctor (and optionally time/meeting_url) to an appointment
+router.patch("/:id/assign", requireJwt, (req, res, next) => {
+  try {
+    const { doctor_id, time, meeting_url } = req.body ?? {};
+    const appointment = appointmentService.assignAppointment(req.params.id, { doctor_id, time, meeting_url });
+    if (!appointment) return res.status(404).json({ error: "not_found" });
+    return res.json({ appointment, item: appointment });
+  } catch (e) {
+    if (e?.statusCode) return res.status(e.statusCode).json({ error: e.message });
+    return next(e);
+  }
+});
+
 // Patient-facing: own appointments with doctor info and meeting link
 router.get("/my", requireJwt, (req, res, next) => {
   try {

@@ -128,8 +128,36 @@ function updateAppointmentStatus(id, status) {
   return db.prepare("SELECT * FROM appointments WHERE id = ?").get(appointmentId);
 }
 
+function assignAppointment(id, { doctor_id, time, meeting_url } = {}) {
+  const appointmentId = String(id || "").trim();
+  if (!appointmentId) {
+    const error = new Error("missing_appointment_id");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const existing = db.prepare("SELECT * FROM appointments WHERE id = ?").get(appointmentId);
+  if (!existing) return null;
+
+  const next = {
+    ...existing,
+    doctor_id: doctor_id !== undefined ? String(doctor_id || "").trim() : existing.doctor_id,
+    time: time !== undefined ? String(time || "").trim() : existing.time,
+    meeting_url: meeting_url !== undefined ? String(meeting_url || "").trim() || existing.meeting_url : existing.meeting_url,
+  };
+
+  db.prepare(
+    "UPDATE appointments SET doctor_id = @doctor_id, time = @time, meeting_url = @meeting_url WHERE id = @id"
+  ).run({ doctor_id: next.doctor_id, time: next.time, meeting_url: next.meeting_url, id: appointmentId });
+
+  const updated = db.prepare("SELECT * FROM appointments WHERE id = ?").get(appointmentId);
+  bus.emit(APPOINTMENT_EVENT, { type: "appointment_assigned", item: updated });
+  return updated;
+}
+
 module.exports = {
   createAppointment,
   listAppointments,
   updateAppointmentStatus,
+  assignAppointment,
 };

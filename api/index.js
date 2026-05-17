@@ -12,7 +12,12 @@ const jwt = require("jsonwebtoken");
 const { OAuth2Client } = require("google-auth-library");
 const { requireJwt } = require("./middleware/auth");
 const { syncDoctorDirectory } = require("./services/doctorDirectoryService");
-const { generateBodyTriageAnswer, hasClaudeTriageConfig } = require("./services/bodyTriageAiService");
+const {
+  generateBodyTriageAnswer,
+  hasBodyTriageConfig,
+  hasClaudeTriageConfig,
+  hasGeminiTriageConfig,
+} = require("./services/bodyTriageAiService");
 const userService = require("./services/userService");
 const { db } = require("./db/sqlite");
 let ticketsRoutes = null;
@@ -702,7 +707,7 @@ app.post("/api/triage", triageRateLimit, async (req, res) => {
     questionParts.push("Что это может быть, какой специалист может подойти и какие препараты помогут?");
     const question = questionParts.join(" ");
 
-    if (hasClaudeTriageConfig()) {
+    if (hasBodyTriageConfig()) {
       try {
         const answer = await generateBodyTriageAnswer({
           bodyPartLabel,
@@ -716,7 +721,7 @@ app.post("/api/triage", triageRateLimit, async (req, res) => {
 
         return res.json({
           answer,
-          source: "anthropic",
+          source: hasGeminiTriageConfig() ? "gemini" : hasClaudeTriageConfig() ? "anthropic" : "ai",
           sources: [],
           recommendedSpecialist: specialistRecommendation?.specialty || null,
           specialistReason: specialistRecommendation?.reason || null,

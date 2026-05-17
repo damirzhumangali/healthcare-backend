@@ -1,24 +1,21 @@
 const Anthropic = require("@anthropic-ai/sdk");
 
-const DEFAULT_MODEL = process.env.CLAUDE_MODEL || "claude-sonnet-4-5";
+const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+const CLAUDE_MODEL = process.env.CLAUDE_MODEL || "claude-sonnet-4-5";
 const DEFAULT_MAX_TOKENS = 700;
 const DISCLAIMER =
   "Проконсультируйтесь с врачом перед применением любого лекарства.";
+
+function hasGeminiTriageConfig() {
+  return Boolean(String(process.env.GEMINI_API_KEY || "").trim());
+}
 
 function hasClaudeTriageConfig() {
   return Boolean(String(process.env.ANTHROPIC_API_KEY || "").trim());
 }
 
-function getClient() {
-  if (!hasClaudeTriageConfig()) {
-    const error = new Error("anthropic_api_key_missing");
-    error.statusCode = 503;
-    throw error;
-  }
-
-  return new Anthropic.default({
-    apiKey: process.env.ANTHROPIC_API_KEY,
-  });
+function hasBodyTriageConfig() {
+  return hasGeminiTriageConfig() || hasClaudeTriageConfig();
 }
 
 function getLanguageInstruction(locale) {
@@ -44,7 +41,7 @@ function ensureDisclaimer(answer) {
   return `${cleaned}\n\n${DISCLAIMER}`;
 }
 
-async function generateBodyTriageAnswer({
+function buildPrompts({
   bodyPartLabel,
   locale = "ru",
   symptoms = "",
@@ -53,10 +50,11 @@ async function generateBodyTriageAnswer({
   pregnant = false,
   recommendedSpecialist = null,
 }) {
-  const client = getClient();
   const normalizedSymptoms = String(symptoms || "").trim() || "не указаны";
   const normalizedPain =
-    Number.isFinite(Number(painLevel)) ? `${Math.max(0, Math.min(10, Number(painLevel)))}/10` : "не указан";
+    Number.isFinite(Number(painLevel))
+      ? `${Math.max(0, Math.min(10, Number(painLevel)))}/10`
+      : "не указан";
 
   const systemPrompt = [
     "Ты медицинский AI-помощник для первичной навигации пациента.",
@@ -84,8 +82,73 @@ async function generateBodyTriageAnswer({
     .filter(Boolean)
     .join(" ");
 
+  return { systemPrompt, userPrompt };
+}
+
+async function generateWithGemini({ systemPrompt, userPrompt }) {
+  if (!hasGeminiTriageConfig()) {
+    const error = new Error("gemini_api_key_missing");
+    error.statusCode = 503;
+    throw error;
+  }
+
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(GEMINI_MODEL)}:generateContent`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": process.env.GEMINI_API_KEY,
+      },
+      body: JSON.stringify({
+        systemInstruction: {
+          parts: [{ text: systemPrompt }],
+        },
+        contents: [
+          {
+            role: "user",
+            parts: [{ text: userPrompt }],
+          },
+        ],
+        generationConfig: {
+          temperature: 0.3,
+          maxOutputTokens: DEFAULT_MAX_TOKENS,
+        },
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    const details = await response.text().catch(() => "");
+    throw new Error(`gemini_request_failed (${response.status}): ${details}`);
+  }
+
+  const data = await response.json();
+  const answer = data?.candidates?.[0]?.content?.parts
+    ?.map((part) => part?.text || "")
+    .join("\n")
+    .trim();
+
+  if (!answer) {
+    throw new Error("gemini_empty_triage_answer");
+  }
+
+  return answer;
+}
+
+async function generateWithClaude({ systemPrompt, userPrompt }) {
+  if (!hasClaudeTriageConfig()) {
+    const error = new Error("anthropic_api_key_missing");
+    error.statusCode = 503;
+    throw error;
+  }
+
+  const client = new Anthropic.default({
+    apiKey: process.env.ANTHROPIC_API_KEY,
+  });
+
   const message = await client.messages.create({
-    model: DEFAULT_MODEL,
+    model: CLAUDE_MODEL,
     max_tokens: DEFAULT_MAX_TOKENS,
     system: systemPrompt,
     messages: [{ role: "user", content: userPrompt }],
@@ -101,10 +164,24 @@ async function generateBodyTriageAnswer({
     throw new Error("anthropic_empty_triage_answer");
   }
 
+  return answer;
+}
+
+async function generateBodyTriageAnswer(input) {
+  const { systemPrompt, userPrompt } = buildPrompts(input);
+
+  if (hasGeminiTriageConfig()) {
+    const answer = await generateWithGemini({ systemPrompt, userPrompt });
+    return ensureDisclaimer(answer);
+  }
+
+  const answer = await generateWithClaude({ systemPrompt, userPrompt });
   return ensureDisclaimer(answer);
 }
 
 module.exports = {
   generateBodyTriageAnswer,
+  hasBodyTriageConfig,
   hasClaudeTriageConfig,
+  hasGeminiTriageConfig,
 };

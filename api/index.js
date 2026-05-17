@@ -12,6 +12,7 @@ const jwt = require("jsonwebtoken");
 const { OAuth2Client } = require("google-auth-library");
 const { requireJwt } = require("./middleware/auth");
 const { syncDoctorDirectory } = require("./services/doctorDirectoryService");
+const { generateBodyTriageAnswer, hasClaudeTriageConfig } = require("./services/bodyTriageAiService");
 const userService = require("./services/userService");
 const { db } = require("./db/sqlite");
 let ticketsRoutes = null;
@@ -701,14 +702,60 @@ app.post("/api/triage", triageRateLimit, async (req, res) => {
     questionParts.push("Что это может быть, какой специалист может подойти и какие препараты помогут?");
     const question = questionParts.join(" ");
 
-    const patientId = String(patient_id || "guest").trim();
-    const { askMedicalAssistant } = require("./services/aiRagService");
-    const result = await askMedicalAssistant({ patientId, question });
+    if (hasClaudeTriageConfig()) {
+      try {
+        const answer = await generateBodyTriageAnswer({
+          bodyPartLabel,
+          locale,
+          symptoms,
+          painLevel: pain,
+          sex: normalizedSex,
+          pregnant: normalizedPregnant,
+          recommendedSpecialist: specialistRecommendation?.specialty || null,
+        });
+
+        return res.json({
+          answer,
+          source: "anthropic",
+          sources: [],
+          recommendedSpecialist: specialistRecommendation?.specialty || null,
+          specialistReason: specialistRecommendation?.reason || null,
+        });
+      } catch (anthropicError) {
+        console.error(
+          "triage_anthropic_error:",
+          anthropicError?.message || anthropicError,
+          anthropicError?.cause?.message ? `cause: ${anthropicError.cause.message}` : ""
+        );
+      }
+    }
+
+    try {
+      const patientId = String(patient_id || "guest").trim();
+      const { askMedicalAssistant } = require("./services/aiRagService");
+      const result = await askMedicalAssistant({ patientId, question });
+
+      return res.json({
+        answer: result.answer,
+        source: "rag",
+        sources: result.sources,
+        recommendedSpecialist: specialistRecommendation?.specialty || null,
+        specialistReason: specialistRecommendation?.reason || null,
+      });
+    } catch (ragError) {
+      console.error(
+        "triage_rag_error:",
+        ragError?.message || ragError,
+        ragError?.cause?.message ? `cause: ${ragError.cause.message}` : ""
+      );
+    }
 
     return res.json({
-      answer: result.answer,
-      source: "rag",
-      sources: result.sources,
+      answer: getFallbackTriageAdvice(bodyPart, locale, symptoms, {
+        sex: normalizedSex,
+        pregnant: normalizedPregnant,
+      }),
+      source: "fallback",
       recommendedSpecialist: specialistRecommendation?.specialty || null,
       specialistReason: specialistRecommendation?.reason || null,
     });

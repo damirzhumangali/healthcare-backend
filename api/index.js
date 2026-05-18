@@ -607,8 +607,165 @@ function getTriageSpecialistRecommendation({ bodyPart, sex, pregnant, symptoms }
   return null;
 }
 
+function matchAny(text, patterns) {
+  return patterns.some((pattern) => pattern.test(text));
+}
+
+function buildRussianFallbackAdvice(bodyPart, symptoms, options = {}) {
+  const { sex, pregnant, painLevel, specialistRecommendation } = options;
+  const normalizedSymptoms = String(symptoms || "").toLowerCase();
+  const possible = [];
+  const actions = [];
+  const redFlags = [];
+
+  const hasUrinarySymptoms = matchAny(normalizedSymptoms, [
+    /мочеиспуск/u,
+    /жжен/u,
+    /рез[ьи]/u,
+    /часто в туалет/u,
+    /моч/u,
+    /кровь/u,
+  ]);
+  const hasLoadOrMovementTrigger = matchAny(normalizedSymptoms, [
+    /движен/u,
+    /нагруз/u,
+    /поднял/u,
+    /трениров/u,
+    /растяж/u,
+    /удар/u,
+    /травм/u,
+  ]);
+  const hasNumbness = matchAny(normalizedSymptoms, [/онем/u, /покалыв/u, /слабост/u]);
+  const hasChestEmergency = matchAny(normalizedSymptoms, [/одыш/u, /давящ/u, /жжет в груди/u, /холодный пот/u]);
+  const hasBreastSymptoms = hasBreastComplaintSymptoms(normalizedSymptoms);
+  const hasFever = matchAny(normalizedSymptoms, [/температур/u, /жар/u, /озноб/u]);
+  const hasCough = matchAny(normalizedSymptoms, [/каш[её]л/u, /кашель/u]);
+  const hasBackRadiation = matchAny(normalizedSymptoms, [/отдает в ногу/u, /прострел/u, /поясниц/u]);
+  const hasDigestiveSymptoms = matchAny(normalizedSymptoms, [/тошнот/u, /рвот/u, /понос/u, /диаре/u, /вздут/u]);
+
+  switch (bodyPart) {
+    case "maleGroin":
+      if (hasUrinarySymptoms) {
+        possible.push("По описанию это похоже на жалобу со стороны мочевыводящих путей: уретрит, цистит, простатическую или другую урологическую проблему.");
+        actions.push("Пейте больше воды небольшими порциями, если нет ограничений по жидкости.");
+        actions.push("Избегайте алкоголя, очень острой пищи и переохлаждения до осмотра.");
+        redFlags.push("Срочно нужен врач, если появилась кровь в моче, высокая температура, сильная боль в пояснице или задержка мочи.");
+      } else {
+        possible.push("Это может быть урологическая жалоба, мышечное перенапряжение паховой области или паховая грыжа.");
+        actions.push("Ограничьте нагрузку и наблюдайте, усиливается ли боль при ходьбе, кашле или натуживании.");
+        redFlags.push("Срочно обратитесь к врачу, если есть выпячивание в паху, резкое усиление боли, тошнота или температура.");
+      }
+      break;
+    case "chest":
+      if (sex === "female" && hasBreastSymptoms) {
+        possible.push("По симптомам это больше похоже на жалобу со стороны молочных желез: воспаление, киста, лактационный застой или другая маммологическая причина.");
+        actions.push("Не сдавливайте область тесной одеждой и отслеживайте уплотнение, покраснение или выделения.");
+        redFlags.push("Срочно нужен врач, если есть быстро растущее уплотнение, температура, выраженное покраснение или кровянистые выделения.");
+      } else if (hasChestEmergency) {
+        possible.push("Давящая боль в груди с одышкой может быть связана с сердцем, сосудами или выраженным бронхоспазмом и требует срочной оценки.");
+        actions.push("Сразу прекратите нагрузку, сядьте или примите полусидячее положение.");
+        actions.push("Если симптомы нарастают, не откладывайте вызов скорой помощи.");
+        redFlags.push("Немедленно вызывайте скорую, если боль не отпускает, отдает в руку, спину или челюсть, есть холодный пот или нехватка воздуха.");
+      } else if (hasCough || hasFever) {
+        possible.push("Это может быть респираторная причина: вирусная инфекция, бронхит или мышечная боль на фоне кашля.");
+        actions.push("Пейте больше жидкости и следите за температурой и частотой дыхания.");
+        redFlags.push("Нужен врач в ближайшее время, если одышка усиливается, держится высокая температура или появляется боль на вдохе.");
+      } else {
+        possible.push("Это может быть мышечная, межреберная, дыхательная или сердечно-сосудистая причина.");
+        actions.push("Ограничьте физическую нагрузку и наблюдайте, усиливается ли боль на вдохе, при движении или в покое.");
+        redFlags.push("Срочно вызывайте скорую при нарастающей боли в груди, одышке, слабости или холодном поте.");
+      }
+      break;
+    case "leftArm":
+    case "rightArm":
+      if (hasLoadOrMovementTrigger) {
+        possible.push("По описанию это похоже на мышечное перенапряжение, растяжение связок или воспаление сухожилий после нагрузки.");
+        actions.push("На 1-2 дня ограничьте нагрузку на руку и избегайте резких движений.");
+        actions.push("Можно приложить холод на 10-15 минут несколько раз в день через ткань.");
+        redFlags.push("Обратитесь к врачу быстрее, если рука заметно опухла, деформирована или боль мешает поднять конечность.");
+      } else if (hasNumbness) {
+        possible.push("Это может быть неврологическая причина: раздражение или сдавление нерва в шее, плече или руке.");
+        actions.push("Избегайте неудобных поз и проверьте, не усиливаются ли симптомы в шее и плече.");
+        redFlags.push("Срочно нужен врач, если есть слабость в кисти, нарастающее онемение или нарушение речи.");
+      } else {
+        possible.push("Это может быть мышечная, суставная или неврологическая причина боли в руке.");
+        actions.push("Понаблюдайте, связано ли усиление боли с движением, нагрузкой или положением тела.");
+        redFlags.push("Нужен врач, если боль усиливается, сохраняется несколько дней или сопровождается отеком и слабостью.");
+      }
+      break;
+    case "femalePelvis":
+      if (pregnant) {
+        possible.push("На фоне беременности боль внизу живота или в малом тазу требует более внимательной оценки акушером-гинекологом.");
+        actions.push("Ограничьте нагрузку и отслеживайте частоту боли, выделения и общее самочувствие.");
+        redFlags.push("Срочно нужен врач при кровянистых выделениях, схваткообразной боли, температуре или головокружении.");
+      } else {
+        possible.push("Это может быть гинекологическая причина: воспаление, овуляторная или менструальная боль, киста или другая тазовая жалоба.");
+        actions.push("Отмечайте связь боли с циклом, выделениями, температурой и мочеиспусканием.");
+        redFlags.push("Срочно нужен врач при сильной односторонней боли, температуре, кровотечении или обмороке.");
+      }
+      break;
+    case "belly":
+      if (hasDigestiveSymptoms) {
+        possible.push("Это может быть желудочно-кишечная причина: спазм, гастроэнтерит, пищевое раздражение или другое расстройство пищеварения.");
+        actions.push("Пейте жидкость небольшими порциями и избегайте тяжелой пищи до улучшения.");
+        redFlags.push("Срочно нужен врач при неукротимой рвоте, выраженной слабости, крови в стуле или резкой локальной боли.");
+      } else {
+        possible.push("Боль в животе может быть связана с пищеварением, мышечным спазмом или другой терапевтической причиной.");
+        actions.push("Наблюдайте, связана ли боль с едой, движением, стулом или температурой.");
+        redFlags.push("Срочно обращайтесь за помощью, если живот становится твердым, боль быстро нарастает или появляется высокая температура.");
+      }
+      break;
+    case "back":
+      if (hasLoadOrMovementTrigger || hasBackRadiation) {
+        possible.push("Это может быть мышечный спазм, перегрузка спины или раздражение нервного корешка.");
+        actions.push("Избегайте подъема тяжестей и длительного сидения в одной позе.");
+        actions.push("Подходит щадящий режим и контроль, отдает ли боль в ногу или усиливается при наклоне.");
+        redFlags.push("Нужен срочный врач, если появилась слабость в ноге, онемение паховой области или проблемы с мочеиспусканием.");
+      } else {
+        possible.push("Это может быть мышечно-скелетная или неврологическая причина боли в спине.");
+        actions.push("Ограничьте нагрузку и отслеживайте, усиливается ли боль ночью, при движении или в покое.");
+        redFlags.push("Срочно нужен врач, если есть температура, травма или резкое усиление боли.");
+      }
+      break;
+    case "head":
+      possible.push(
+        hasFever
+          ? "Это может быть головная боль на фоне инфекции, температуры или обезвоживания."
+          : "Это может быть головная боль напряжения, мигрень или другая неврологическая причина."
+      );
+      actions.push("Пейте воду, снизьте нагрузку и понаблюдайте, есть ли светобоязнь, тошнота или температура.");
+      redFlags.push("Срочно вызывайте скорую при самой сильной головной боли в жизни, слабости в конечностях, судорогах или нарушении речи.");
+      break;
+    default:
+      possible.push("По локализации и описанию это может быть мышечная, воспалительная или функциональная причина, но точная оценка требует врача.");
+      actions.push("Наблюдайте за динамикой боли, температурой, отеком и тем, что усиливает симптомы.");
+      redFlags.push("Срочно обращайтесь за помощью, если боль быстро нарастает, появляются слабость, высокая температура или кровотечение.");
+      break;
+  }
+
+  if (painLevel != null && painLevel >= 8) {
+    redFlags.push("Из-за очень сильной боли лучше обратиться за медицинской помощью сегодня, даже если других симптомов пока нет.");
+  }
+
+  const specialistLine = specialistRecommendation
+    ? `К какому специалисту обратиться: Вероятнее всего, начать стоит с ${specialistRecommendation.specialty.toLowerCase()}.`
+    : "";
+
+  return [
+    `Что это может быть: ${possible[0] || "Требуется очная оценка симптомов."}`,
+    specialistLine,
+    "Что можно сделать сейчас:",
+    ...actions.slice(0, 3).map((item) => `- ${item}`),
+    "Когда нужен врач:",
+    ...redFlags.slice(0, 3).map((item) => `- ${item}`),
+    DISCLAIMER,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
 function getFallbackTriageAdvice(bodyPart, locale, symptoms, options = {}) {
-  const { sex, pregnant } = options;
+  const { sex, pregnant, painLevel } = options;
   const labels = {
     ru: {
       head: "голове",
@@ -661,6 +818,15 @@ function getFallbackTriageAdvice(bodyPart, locale, symptoms, options = {}) {
     pregnant,
     symptoms,
   });
+
+  if (locale === "ru") {
+    return buildRussianFallbackAdvice(bodyPart, symptoms, {
+      sex,
+      pregnant,
+      painLevel,
+      specialistRecommendation,
+    });
+  }
 
   if (locale === "kk") {
     return `Сіз ${labels.kk[bodyPart]} ауырсынуды белгіледіңіз.${userSymptoms ? ` Көрсетілген симптомдар: ${userSymptoms}.` : ""}${specialistRecommendation ? ` Ұсынылатын маман: ${specialistRecommendation.specialty}.` : ""} Бұл диагноз емес: симптомдар күшейсе немесе басылмаса, дәрігерге көрініңіз. Қатты ентігу, кеуде ауыруы, есінен тану, құрысу, қан кету болса жедел жәрдем шақырыңыз. Қазір демалып, суды жеткілікті ішіп, дене қызуын және жалпы жағдайды бақылаңыз.`;
@@ -759,6 +925,7 @@ app.post("/api/triage", triageRateLimit, async (req, res) => {
       answer: getFallbackTriageAdvice(bodyPart, locale, symptoms, {
         sex: normalizedSex,
         pregnant: normalizedPregnant,
+        painLevel: pain,
       }),
       source: "fallback",
       recommendedSpecialist: specialistRecommendation?.specialty || null,
@@ -783,6 +950,7 @@ app.post("/api/triage", triageRateLimit, async (req, res) => {
       answer: getFallbackTriageAdvice(bodyPart, locale, symptoms, {
         sex,
         pregnant,
+        painLevel: req.body?.painLevel,
       }),
       source: "fallback",
       recommendedSpecialist: specialistRecommendation?.specialty || null,

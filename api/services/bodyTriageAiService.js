@@ -113,6 +113,9 @@ async function generateWithGemini({ systemPrompt, userPrompt }) {
         generationConfig: {
           temperature: 0.3,
           maxOutputTokens: DEFAULT_MAX_TOKENS,
+          thinkingConfig: {
+            thinkingBudget: 0,
+          },
         },
       }),
     }

@@ -546,6 +546,9 @@ const BODY_PART_LABELS = {
   femalePelvis: "Органы малого таза / гинекология",
 };
 
+const TRIAGE_DISCLAIMER =
+  "Проконсультируйтесь с врачом перед применением любого лекарства.";
+
 function hasBreastComplaintSymptoms(symptoms) {
   const normalized = String(symptoms || "").toLowerCase();
 
@@ -758,7 +761,7 @@ function buildRussianFallbackAdvice(bodyPart, symptoms, options = {}) {
     ...actions.slice(0, 3).map((item) => `- ${item}`),
     "Когда нужен врач:",
     ...redFlags.slice(0, 3).map((item) => `- ${item}`),
-    DISCLAIMER,
+    TRIAGE_DISCLAIMER,
   ]
     .filter(Boolean)
     .join("\n");

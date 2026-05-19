@@ -31,19 +31,25 @@ function upsertOAuthUser(profile) {
   const ts = nowIso();
   const email = normalizeEmail(profile.email);
   const role = resolveRole(email);
+  const userId = String(profile.id || "").trim();
+  const existing = userId
+    ? db.prepare("SELECT avatar_url FROM users WHERE id = ?").get(userId)
+    : null;
+
   const user = {
-    id: String(profile.id || "").trim(),
+    id: userId,
     email,
     name: String(profile.name || "").trim(),
     picture: String(profile.picture || "").trim(),
+    avatar_url: existing?.avatar_url || null,
     role,
     created_at: ts,
     updated_at: ts,
   };
 
   db.prepare(
-    `INSERT INTO users(id, email, name, picture, role, created_at, updated_at)
-     VALUES (@id, @email, @name, @picture, @role, @created_at, @updated_at)
+    `INSERT INTO users(id, email, name, picture, avatar_url, role, created_at, updated_at)
+     VALUES (@id, @email, @name, @picture, @avatar_url, @role, @created_at, @updated_at)
      ON CONFLICT(id) DO UPDATE SET
        email = excluded.email,
        name = excluded.name,
@@ -56,17 +62,24 @@ function upsertOAuthUser(profile) {
     db.prepare("UPDATE doctors SET user_id = ?, updated_at = ? WHERE lower(email) = ?").run(user.id, ts, email);
   }
 
-  return {
+  return getUserById(user.id) || {
     id: user.id,
     email: user.email,
     name: user.name,
     picture: user.picture,
+    avatar_url: user.avatar_url,
     role: user.role,
   };
 }
 
 function getUserById(id) {
-  return db.prepare("SELECT id, email, name, picture, role FROM users WHERE id = ?").get(id);
+  return db.prepare("SELECT id, email, name, picture, avatar_url, role FROM users WHERE id = ?").get(id);
+}
+
+function updateUserAvatar(id, avatarUrl) {
+  const ts = nowIso();
+  db.prepare("UPDATE users SET avatar_url = ?, updated_at = ? WHERE id = ?").run(avatarUrl || null, ts, id);
+  return getUserById(id);
 }
 
 function listPatients() {
@@ -77,6 +90,7 @@ function listPatients() {
         u.email,
         u.name,
         u.picture,
+        u.avatar_url,
         u.role,
         u.created_at,
         MAX(a.created_at) AS last_appointment_at,
@@ -97,6 +111,7 @@ function listPatients() {
         NULL AS email,
         NULL AS name,
         NULL AS picture,
+        NULL AS avatar_url,
         'patient' AS role,
         MIN(a.created_at) AS created_at,
         MAX(a.created_at) AS last_appointment_at,
@@ -113,6 +128,7 @@ function listPatients() {
     email: patient.email,
     name: patient.name || patient.email || `Пациент ${String(patient.id || "").slice(-4)}`,
     picture: patient.picture,
+    avatar_url: patient.avatar_url || null,
     role: patient.role,
     created_at: patient.created_at,
     last_appointment_at: patient.last_appointment_at,
@@ -124,5 +140,6 @@ module.exports = {
   resolveRole,
   upsertOAuthUser,
   getUserById,
+  updateUserAvatar,
   listPatients,
 };

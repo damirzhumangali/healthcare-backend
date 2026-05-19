@@ -43,7 +43,7 @@ try { consultationsRoutes = require("./routes/consultations"); } catch(e) { cons
 
 const app = express();
 app.disable("x-powered-by");
-app.use(express.json({ limit: "100kb" }));
+app.use(express.json({ limit: "8mb" }));
 const PORT = Number(process.env.PORT) || 4000;
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
 const CORS_ORIGINS = String(
@@ -351,7 +351,7 @@ app.post("/auth/local/dev-token", authRateLimit, (req, res) => {
   }
 
   const existingUser = db
-    .prepare("SELECT id, email, name, picture FROM users WHERE lower(email) = ?")
+    .prepare("SELECT id, email, name, picture, avatar_url FROM users WHERE lower(email) = ?")
     .get(email);
 
   const user = userService.upsertOAuthUser({
@@ -359,6 +359,7 @@ app.post("/auth/local/dev-token", authRateLimit, (req, res) => {
     email,
     name: existingUser?.name || name,
     picture: existingUser?.picture || "",
+    avatar_url: existingUser?.avatar_url || null,
   });
 
   const token = jwt.sign(user, process.env.JWT_SECRET, { expiresIn: "7d" });
@@ -373,9 +374,55 @@ app.post("/auth/logout", (req, res) => {
   return res.status(204).end();
 });
 
+const AVATAR_UPLOAD_LIMIT_BYTES = 5 * 1024 * 1024;
+
+function normalizeAvatarUpload(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+
+  const match = raw.match(/^data:(image\/(?:jpeg|jpg|png|webp));base64,([A-Za-z0-9+/=]+)$/i);
+  if (!match) {
+    const error = new Error("invalid_avatar_type");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const bytes = Buffer.byteLength(match[2], "base64");
+  if (bytes > AVATAR_UPLOAD_LIMIT_BYTES) {
+    const error = new Error("avatar_too_large");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  return raw;
+}
+
 app.get("/api/me", requireJwt, (req, res) => {
   const user = userService.getUserById(req.user.id) || req.user;
+  res.set("Cache-Control", "no-store");
   res.json({ user });
+});
+
+app.put("/api/me/avatar", requireJwt, (req, res) => {
+  try {
+    const remove = req.body?.remove === true;
+    const avatarUrl = remove
+      ? null
+      : normalizeAvatarUpload(req.body?.avatar_url ?? req.body?.avatarUrl ?? req.body?.imageDataUrl ?? null);
+
+    const user = userService.updateUserAvatar(req.user.id, avatarUrl);
+    if (!user) {
+      return res.status(404).json({ error: "user_not_found" });
+    }
+
+    res.set("Cache-Control", "no-store");
+    return res.json({ user });
+  } catch (error) {
+    if (error?.statusCode) {
+      return res.status(error.statusCode).json({ error: error.message });
+    }
+    throw error;
+  }
 });
 
 if (ticketsRoutes) app.use("/api/tickets", ticketsRoutes);

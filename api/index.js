@@ -375,6 +375,7 @@ app.post("/auth/logout", (req, res) => {
 });
 
 const AVATAR_UPLOAD_LIMIT_BYTES = 5 * 1024 * 1024;
+const PROFILE_NAME_PART_RE = /^\p{L}[\p{L}\p{M}'’.-]+$/u;
 
 function normalizeAvatarUpload(value) {
   const raw = String(value || "").trim();
@@ -397,10 +398,53 @@ function normalizeAvatarUpload(value) {
   return raw;
 }
 
+function normalizeProfileName(value) {
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function validateProfileName(value) {
+  const normalized = normalizeProfileName(value);
+  if (!normalized) return "invalid_name";
+  if (/\d/.test(normalized)) return "invalid_name";
+
+  const parts = normalized.split(" ").filter(Boolean);
+  if (parts.length < 2) return "invalid_name";
+  if (
+    parts.some(
+      (part) =>
+        part.length < 2 ||
+        !PROFILE_NAME_PART_RE.test(part)
+    )
+  ) {
+    return "invalid_name";
+  }
+
+  return null;
+}
+
 app.get("/api/me", requireJwt, (req, res) => {
   const user = userService.getUserById(req.user.id) || req.user;
   res.set("Cache-Control", "no-store");
   res.json({ user });
+});
+
+app.put("/api/me/profile", requireJwt, (req, res) => {
+  const errorCode = validateProfileName(req.body?.name);
+  if (errorCode) {
+    return res.status(400).json({ error: errorCode });
+  }
+
+  const user = userService.updateUserProfile(req.user.id, {
+    name: normalizeProfileName(req.body?.name),
+  });
+  if (!user) {
+    return res.status(404).json({ error: "user_not_found" });
+  }
+
+  res.set("Cache-Control", "no-store");
+  return res.json({ user });
 });
 
 app.put("/api/me/avatar", requireJwt, (req, res) => {

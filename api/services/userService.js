@@ -33,13 +33,20 @@ function upsertOAuthUser(profile) {
   const role = resolveRole(email);
   const userId = String(profile.id || "").trim();
   const existing = userId
-    ? db.prepare("SELECT avatar_url FROM users WHERE id = ?").get(userId)
+    ? db
+        .prepare("SELECT avatar_url, name, name_customized FROM users WHERE id = ?")
+        .get(userId)
     : null;
+  const oauthName = String(profile.name || "").trim();
+  const preservedName =
+    existing?.name_customized === 1 && String(existing?.name || "").trim()
+      ? String(existing.name).trim()
+      : oauthName;
 
   const user = {
     id: userId,
     email,
-    name: String(profile.name || "").trim(),
+    name: preservedName,
     picture: String(profile.picture || "").trim(),
     avatar_url: existing?.avatar_url || null,
     role,
@@ -52,7 +59,10 @@ function upsertOAuthUser(profile) {
      VALUES (@id, @email, @name, @picture, @avatar_url, @role, @created_at, @updated_at)
      ON CONFLICT(id) DO UPDATE SET
        email = excluded.email,
-       name = excluded.name,
+       name = CASE
+         WHEN COALESCE(users.name_customized, 0) = 1 AND TRIM(COALESCE(users.name, '')) <> '' THEN users.name
+         ELSE excluded.name
+       END,
        picture = excluded.picture,
        role = excluded.role,
        updated_at = excluded.updated_at`
@@ -79,6 +89,15 @@ function getUserById(id) {
 function updateUserAvatar(id, avatarUrl) {
   const ts = nowIso();
   db.prepare("UPDATE users SET avatar_url = ?, updated_at = ? WHERE id = ?").run(avatarUrl || null, ts, id);
+  return getUserById(id);
+}
+
+function updateUserProfile(id, input) {
+  const ts = nowIso();
+  const name = String(input?.name || "").trim();
+  db.prepare(
+    "UPDATE users SET name = ?, name_customized = 1, updated_at = ? WHERE id = ?"
+  ).run(name, ts, id);
   return getUserById(id);
 }
 
@@ -141,5 +160,6 @@ module.exports = {
   upsertOAuthUser,
   getUserById,
   updateUserAvatar,
+  updateUserProfile,
   listPatients,
 };

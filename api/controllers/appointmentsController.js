@@ -1,5 +1,6 @@
 const appointmentService = require("../services/appointmentService");
 const doctorService = require("../services/doctorService");
+const userService = require("../services/userService");
 
 function handleServiceError(error, next, res) {
   if (error?.statusCode) {
@@ -91,7 +92,24 @@ function listAppointments(req, res, next) {
       patient_id: patientId,
       date: req.query?.date,
     });
-    return res.status(200).json({ appointments, items: appointments });
+    const patients = userService.listPatients ? userService.listPatients() : [];
+    const patientMap = new Map(
+      patients.map((patient) => [
+        patient.id,
+        {
+          name: patient.name || null,
+          email: patient.email || null,
+        },
+      ])
+    );
+    const items = appointments.map((appointment) => {
+      const patient = patientMap.get(appointment.patient_id);
+      return {
+        ...appointment,
+        patient_name: patient?.name || patient?.email || appointment.patient_name || null,
+      };
+    });
+    return res.status(200).json({ appointments: items, items });
   } catch (e) {
     return handleServiceError(e, next, res);
   }

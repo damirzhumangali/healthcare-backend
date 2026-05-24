@@ -10,6 +10,32 @@ const bus = require("../services/eventBus");
 const { sendMeetingLink } = require("../services/emailService");
 
 const router = express.Router();
+const REGISTRATION_STATS_TIMEZONE = "Asia/Almaty";
+
+function formatDateKey(date) {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: REGISTRATION_STATS_TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+
+  return formatter.format(date);
+}
+
+function shiftDays(date, diff) {
+  const next = new Date(date.getTime());
+  next.setDate(next.getDate() + diff);
+  return next;
+}
+
+function buildRegistrationDays(windowDays) {
+  const today = new Date();
+  return Array.from({ length: windowDays }, (_, index) => {
+    const date = shiftDays(today, index - (windowDays - 1));
+    return formatDateKey(date);
+  });
+}
 
 // SSE endpoint must be registered BEFORE the requireJwt middleware that
 // expects Authorization headers, because EventSource cannot send headers —
@@ -55,6 +81,53 @@ router.get(
 );
 
 router.use(requireJwt, requireAdmin);
+
+router.get("/stats/registrations", (req, res) => {
+  const byDayTemplate = buildRegistrationDays(30);
+  const grouped = new Map(byDayTemplate.map((date) => [date, 0]));
+  const rows = db
+    .prepare(
+      `SELECT created_at
+       FROM users
+       WHERE role = 'patient'`
+    )
+    .all();
+
+  let total = 0;
+  let today = 0;
+  let last7Days = 0;
+  let last30Days = 0;
+
+  const todayKey = byDayTemplate[byDayTemplate.length - 1];
+  const last7Keys = new Set(byDayTemplate.slice(-7));
+  const last30Keys = new Set(byDayTemplate);
+
+  for (const row of rows) {
+    const createdAt = Date.parse(row.created_at);
+    if (Number.isNaN(createdAt)) continue;
+
+    total += 1;
+    const dateKey = formatDateKey(new Date(createdAt));
+
+    if (dateKey === todayKey) today += 1;
+    if (last7Keys.has(dateKey)) last7Days += 1;
+    if (last30Keys.has(dateKey)) {
+      last30Days += 1;
+      grouped.set(dateKey, (grouped.get(dateKey) || 0) + 1);
+    }
+  }
+
+  res.json({
+    total,
+    today,
+    last_7_days: last7Days,
+    last_30_days: last30Days,
+    by_day: byDayTemplate.map((date) => ({
+      date,
+      count: grouped.get(date) || 0,
+    })),
+  });
+});
 
 router.get("/summary", (req, res) => {
   const today = new Date().toISOString().slice(0, 10);
